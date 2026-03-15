@@ -1,0 +1,132 @@
+{
+  "projectType": "saas",
+  "projectName": "Academia Gema",
+  "projectDescription": "A full-stack volleyball club management platform with role-based dashboards for administrators, coordinators, and students to manage scheduling, enrollment, attendance, and payments.",
+  "theme": "almond",
+  "primaryColor": "#1e3a8a",
+  "lightColor": "#f97316",
+  "darkColor": "#0f172a",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/scheduling",
+              "features/enrollment",
+              "features/attendance",
+              "features/payments",
+              "features/publications"
+            ]
+          },
+          {
+            "group": "User Roles",
+            "pages": [
+              "roles/overview",
+              "roles/admin",
+              "roles/coordinator",
+              "roles/student"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "database/schema",
+              "database/migrations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api-reference/auth/login",
+              "api-reference/auth/logout",
+              "api-reference/auth/register",
+              "api-reference/auth/password-reset"
+            ]
+          },
+          {
+            "group": "Users & Roles",
+            "pages": [
+              "api-reference/users/overview",
+              "api-reference/users/students",
+              "api-reference/users/coordinators"
+            ]
+          },
+          {
+            "group": "Scheduling",
+            "pages": [
+              "api-reference/schedules/overview",
+              "api-reference/schedules/locations",
+              "api-reference/schedules/levels"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "api-reference/enrollments/overview",
+              "api-reference/attendance/overview",
+              "api-reference/payments/overview",
+              "api-reference/recoveries/overview"
+            ]
+          },
+          {
+            "group": "Content",
+            "pages": [
+              "api-reference/publications/overview",
+              "api-reference/catalog/overview"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Role-based dashboards for Administrators, Coordinators, and Students",
+    "Class scheduling management with multi-location and court support",
+    "Student enrollment and training level management",
+    "Attendance tracking with present, absent, late, and excused states",
+    "Payment and accounts-receivable management with discount/benefit support",
+    "Class rescheduling and recovery session management",
+    "Publications and news feed for students",
+    "Guest pass management",
+    "Injury tracking and recovery management",
+    "Excel report exports for admins"
+  ],
+  "publicApiSurface": [
+    "POST /auth/login",
+    "POST /auth/logout",
+    "POST /auth/forgot-password",
+    "POST /auth/reset-password",
+    "GET /horarios",
+    "GET /usuarios/role/alumno",
+    "GET /usuarios/role/coordinador",
+    "GET /inscripciones",
+    "GET /pagos/gestion-admin",
+    "POST /pagos/reportar",
+    "POST /pagos/validar",
+    "GET /sedes",
+    "GET /niveles",
+    "GET /asistencias",
+    "GET /catalogo/vigentes",
+    "GET /publicaciones",
+    "GET /lesiones",
+    "GET /recuperaciones",
+    "GET /feriados",
+    "GET /notificaciones"
+  ]
+}
