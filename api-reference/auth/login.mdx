@@ -1,0 +1,162 @@
+---
+title: "Login"
+description: "Authenticate a user and establish a session via cookie-based auth."
+---
+
+Authenticates a user with their username (or email) and password. On success the server issues HTTP-only session cookies and the client stores identity cookies for UI consumption.
+
+## Endpoint
+
+```
+POST /auth/login
+```
+
+## Request body
+
+<ParamField body="username" type="string" required>
+  The user's login identifier. This is typically the auto-generated username assigned on registration (e.g. `juan.perez`). Users who were added manually before the self-service portal may use their email address instead.
+
+  <Note>
+    If a user never self-registered through the web portal, their password defaults to the same value as their username.
+  </Note>
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The user's account password. Passwords are bcrypt-hashed server-side; they are never stored in plain text.
+</ParamField>
+
+## Response
+
+A successful `200 OK` response wraps the authenticated user record inside a `data` envelope.
+
+```json
+{
+  "data": {
+    "user": {
+      "id": 42,
+      "nombres": "Juan Alberto",
+      "apellidos": "Pérez García",
+      "rol": "Alumno"
+    }
+  }
+}
+```
+
+<ResponseField name="data" type="object">
+  Top-level data envelope returned by all Academia Gema API responses.
+
+  <Expandable title="data">
+    <ResponseField name="user" type="object">
+      The authenticated user's identity record.
+
+      <Expandable title="user">
+        <ResponseField name="id" type="integer">
+          Unique numeric identifier of the user (`usuarios.id` in the database).
+        </ResponseField>
+
+        <ResponseField name="nombres" type="string">
+          User's first name(s) as stored in `usuarios.nombres`.
+        </ResponseField>
+
+        <ResponseField name="apellidos" type="string">
+          User's last name(s) as stored in `usuarios.apellidos`.
+        </ResponseField>
+
+        <ResponseField name="rol" type="string">
+          The role assigned to the user. One of `Administrador`, `Coordinador`, or `Alumno`. Controls the dashboard the frontend redirects to after login.
+        </ResponseField>
+
+        <ResponseField name="debeCompletarEmail" type="boolean">
+          When `true`, the user's account was provisioned without an email address and they should complete their profile. The frontend notes this flag but still redirects to the role dashboard.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Cookie-based authentication
+
+The server sets HTTP-only session cookies on the response. In addition, the frontend service (`auth.service.js`) writes four client-readable cookies for UI state using `js-cookie`:
+
+| Cookie | Value | Expires |
+|---|---|---|
+| `user_role` | `user.rol` — role string | 1 day |
+| `user_name` | `user.nombres` | 1 day |
+| `user_lastname` | `user.apellidos` | 1 day |
+| `user_id` | `user.id` | 1 day |
+
+Cookies are configured with `sameSite: 'strict'` and `secure: true` on HTTPS origins.
+
+<Warning>
+  All requests to `/auth/login` must include `credentials: "include"` so the browser sends and receives cookies across the API origin. Omitting this option will break session establishment.
+</Warning>
+
+## Code example
+
+The following is the exact `loginService` implementation from `auth.service.js`:
+
+<CodeGroup>
+```js fetch (auth.service.js)
+import Cookies from 'js-cookie';
+import { API_ROUTES } from '../constants/apiRoutes';
+
+const API_URL = import.meta.env.VITE_API_URL;
+
+const cookieConfig = {
+  expires: 1,
+  secure: globalThis.location.protocol === 'https:',
+  sameSite: 'strict'
+};
+
+export const loginService = async (identifier, password) => {
+  const payload = { username: identifier, password };
+
+  const response = await fetch(`${API_URL}${API_ROUTES.AUTH.LOGIN}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    credentials: "include",   // required for cookie-based auth
+  });
+
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.message || "Error en el servidor");
+
+  if (result.data) {
+    const { user } = result.data;
+    if (user) {
+      Cookies.set('user_role',     user.rol,              cookieConfig);
+      Cookies.set('user_name',     user.nombres,          cookieConfig);
+      Cookies.set('user_lastname', user.apellidos || '',  cookieConfig);
+      Cookies.set('user_id',       user.id,               cookieConfig);
+    }
+  }
+
+  return result.data;
+};
+```
+
+```bash curl
+curl -X POST https://api.academiagema.com/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "juan.perez", "password": "mypassword"}' \
+  -c cookies.txt
+```
+</CodeGroup>
+
+## Role-based redirect
+
+After a successful login the frontend reads `user.rol` and navigates to the corresponding dashboard:
+
+| Role | Dashboard route |
+|---|---|
+| `Administrador` | `/dashboard/admin` |
+| `Coordinador` | `/dashboard/teacher` |
+| `Alumno` | `/dashboard/student` |
+
+## Error responses
+
+| Status | Meaning |
+|---|---|
+| `401 Unauthorized` | Invalid credentials |
+| `403 Forbidden` | Account is locked (`credenciales_usuario.bloqueado = true`) |
+| `500 Internal Server Error` | Unexpected server-side error |

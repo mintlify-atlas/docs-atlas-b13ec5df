@@ -1,0 +1,203 @@
+---
+title: "Publications"
+description: "Manage club announcements, news publications, and in-app notifications for Academia Gema members."
+---
+
+Publications (`publicaciones`) are admin-authored announcements — news, event notices, reminders, or policy updates — displayed to club members. Each publication can also trigger a `notificacion` that appears in each user's notification bell in the app.
+
+---
+
+## Publications (`/publicaciones`)
+
+### List publications
+
+**`GET /publicaciones`** — Returns all publication records, ordered by creation date descending.
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/publicaciones \
+  --header 'Authorization: Bearer {token}'
+```
+
+```javascript JavaScript
+const response = await apiFetch.get('/publicaciones');
+const result = await response.json();
+// result.data => array of publication objects
+```
+
+</CodeGroup>
+
+<ResponseField name="data" type="object[]">
+  Array of publication objects.
+  <Expandable title="Publication object">
+    <ResponseField name="id" type="number">Publication ID.</ResponseField>
+    <ResponseField name="titulo" type="string">Title of the publication.</ResponseField>
+    <ResponseField name="contenido" type="string">Body text of the announcement. May contain Markdown or HTML.</ResponseField>
+    <ResponseField name="tipo" type="string">Category of the publication (e.g., `"NOTICIA"`, `"EVENTO"`, `"AVISO"`).</ResponseField>
+    <ResponseField name="imagen_url" type="string">Optional URL of a cover image (Cloudinary).</ResponseField>
+    <ResponseField name="activo" type="boolean">Whether the publication is visible to members.</ResponseField>
+    <ResponseField name="creado_en" type="string">ISO 8601 timestamp of creation.</ResponseField>
+    <ResponseField name="actualizado_en" type="string">ISO 8601 timestamp of the last update.</ResponseField>
+    <ResponseField name="autor" type="object">
+      Admin user who created the publication.
+      <Expandable title="autor">
+        <ResponseField name="id" type="number">Author's user ID.</ResponseField>
+        <ResponseField name="nombres" type="string">Author's first name(s).</ResponseField>
+        <ResponseField name="apellidos" type="string">Author's last name(s).</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Get a publication by ID
+
+**`GET /publicaciones/{id}`** — Returns a single publication.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the publication.
+</ParamField>
+
+### Create a publication
+
+**`POST /publicaciones`** — Creates a new publication. Requires admin privileges.
+
+<ParamField body="titulo" type="string" required>
+  Title of the publication. Shown as the headline in the announcements list.
+</ParamField>
+
+<ParamField body="contenido" type="string" required>
+  Full body text of the announcement.
+</ParamField>
+
+<ParamField body="tipo" type="string" required>
+  Category of the publication. Common values: `NOTICIA`, `EVENTO`, `AVISO`.
+</ParamField>
+
+<ParamField body="imagen_url" type="string">
+  URL of a cover image uploaded to Cloudinary via `POST /cloudinary`.
+</ParamField>
+
+<ParamField body="activo" type="boolean" default="true">
+  Set to `false` to save the publication as a draft without making it visible.
+</ParamField>
+
+<ParamField body="notificar_usuarios" type="boolean" default="false">
+  When `true`, the system creates a `notificacion` record for every active user so the publication appears in their notification feed.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request POST \
+  --url https://api.academiagema.com/publicaciones \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "titulo": "Torneo Interno de Verano 2026",
+    "contenido": "Inscripciones abiertas hasta el 30 de marzo.",
+    "tipo": "EVENTO",
+    "activo": true,
+    "notificar_usuarios": true
+  }'
+```
+
+</CodeGroup>
+
+### Update a publication
+
+**`PUT /publicaciones/{id}`** — Updates any field of an existing publication. Requires admin privileges.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the publication to update.
+</ParamField>
+
+Accepts the same body fields as `POST /publicaciones`.
+
+### Delete a publication
+
+**`DELETE /publicaciones/{id}`** — Removes a publication permanently. Requires admin privileges.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the publication to delete.
+</ParamField>
+
+<Warning>
+Deleting a publication does not delete associated `notificaciones`. Notifications that reference a deleted publication will still appear in users' feeds but will have no content to link to.
+</Warning>
+
+---
+
+## Notifications (`/notificaciones`)
+
+Notifications are per-user records generated when an admin publishes an announcement with `notificar_usuarios: true`. Each user has their own read/unread state for every notification.
+
+### List notifications for current user
+
+**`GET /notificaciones`** — Returns all notifications for the currently authenticated user, ordered by creation date descending.
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/notificaciones \
+  --header 'Authorization: Bearer {token}'
+```
+
+</CodeGroup>
+
+<ResponseField name="data" type="object[]">
+  <Expandable title="Notification object">
+    <ResponseField name="id" type="number">Notification ID.</ResponseField>
+    <ResponseField name="usuario_id" type="number">ID of the user this notification belongs to.</ResponseField>
+    <ResponseField name="publicacion_id" type="number">ID of the source publication.</ResponseField>
+    <ResponseField name="leido" type="boolean">Whether the user has read this notification.</ResponseField>
+    <ResponseField name="creado_en" type="string">Timestamp when the notification was created.</ResponseField>
+    <ResponseField name="publicacion" type="object">
+      Nested publication summary.
+      <Expandable title="publicacion">
+        <ResponseField name="titulo" type="string">Publication title.</ResponseField>
+        <ResponseField name="tipo" type="string">Publication category.</ResponseField>
+        <ResponseField name="imagen_url" type="string">Cover image URL.</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Mark a notification as read
+
+**`PUT /notificaciones/{id}/leer`** — Sets `leido = true` for a specific notification. Call this when a user opens or dismisses a notification.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the notification to mark as read.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request PUT \
+  --url https://api.academiagema.com/notificaciones/23/leer \
+  --header 'Authorization: Bearer {token}'
+```
+
+```javascript JavaScript
+await apiFetch.put(`/notificaciones/${notificacionId}/leer`);
+```
+
+</CodeGroup>
+
+**Success response (`200 OK`):**
+
+```json
+{
+  "data": {
+    "id": 23,
+    "leido": true
+  }
+}
+```
+
+<Tip>
+To show an unread count badge on the notification bell icon, filter the notifications array from `GET /notificaciones` by `leido: false` on the client side rather than making a separate count request.
+</Tip>

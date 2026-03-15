@@ -1,0 +1,140 @@
+---
+title: "Users & Roles"
+description: "Overview of the Academia Gema user system, roles, and all user-related API endpoints."
+---
+
+All platform participants are stored in the `usuarios` table and assigned a role from the `roles` table. Role-specific profile data extends the base record in dedicated tables: `alumnos` for students and `profesores` for coaches.
+
+## Database schema
+
+The user system uses three core tables:
+
+```sql
+-- Base user record
+CREATE TABLE usuarios (
+    id          SERIAL PRIMARY KEY,
+    rol_id      INT NOT NULL REFERENCES roles(id),
+    nombres     VARCHAR(100) NOT NULL,
+    apellidos   VARCHAR(100) NOT NULL,
+    email       VARCHAR(150) UNIQUE NOT NULL,
+    telefono    VARCHAR(20),
+    activo      BOOLEAN DEFAULT TRUE,
+    creado_en   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Role definitions
+CREATE TABLE roles (
+    id     SERIAL PRIMARY KEY,
+    nombre VARCHAR(50) UNIQUE NOT NULL
+);
+
+-- Student profile extension
+CREATE TABLE alumnos (
+    usuario_id                  INT PRIMARY KEY REFERENCES usuarios(id),
+    contacto_emergencia_nombre  VARCHAR(100),
+    contacto_emergencia_telefono VARCHAR(20),
+    condiciones_medicas         TEXT,
+    fecha_nacimiento            DATE
+);
+
+-- Coach/professor profile extension
+CREATE TABLE profesores (
+    usuario_id      INT PRIMARY KEY REFERENCES usuarios(id),
+    especializacion VARCHAR(100),
+    tarifa_hora     DECIMAL(10, 2)
+);
+```
+
+Authentication credentials (password hash, login attempts, lock status) are kept separate in `credenciales_usuario`:
+
+```sql
+CREATE TABLE credenciales_usuario (
+    usuario_id               INT PRIMARY KEY REFERENCES usuarios(id),
+    hash_contrasena          VARCHAR(255) NOT NULL,
+    ultimo_login             TIMESTAMP,
+    intentos_fallidos        INT DEFAULT 0,
+    bloqueado                BOOLEAN DEFAULT FALSE
+);
+```
+
+## Roles
+
+| Role name | Description |
+|---|---|
+| `Administrador` | Full platform access. Can manage all users, payments, schedules, and reports. Redirected to `/dashboard/admin` after login. |
+| `Coordinador` | Manages schedules, attendance, and student rosters. Redirected to `/dashboard/teacher` after login. |
+| `Alumno` | Student participant. Can view their own profile, schedule, payments, and attendance history. Redirected to `/dashboard/student` after login. |
+
+## Endpoints
+
+### User listing and lookup
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/usuarios/role/alumno` | List all students |
+| `GET` | `/usuarios/role/coordinador` | List all coordinators |
+| `GET` | `/usuarios/role/profesor` | List all professors/coaches |
+| `GET` | `/usuarios/{id}` | Get any user by ID |
+
+### Statistics and reports
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/usuarios/count/usuarios-stats` | Aggregate user counts by role and status |
+| `GET` | `/usuarios/reporte/detallado` | Download a detailed user report (Excel export) |
+
+### Student self-service
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/alumno/mi-perfil` | Authenticated student's own profile |
+| `GET` | `/alumno/gestion/resumen-cortes` | Student's cut-day billing summary |
+
+### Coordinator profiles
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/coordinadores` | List all coordinator profiles |
+| `GET` | `/coordinadores/{id}` | Get coordinator by ID |
+
+### Registration
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/usuarios/register` | Create a new student account (public) |
+
+## API route constants
+
+All user-related paths are defined in `apiRoutes.js`:
+
+```js
+USUARIOS: {
+  BASE:          "/usuarios",
+  ALUMNOS:       "/usuarios/role/alumno",
+  COORDINADORES: "/usuarios/role/coordinador",
+  PROFESORES:    "/usuarios/role/profesor",
+  ALUMNO_BY_ID:  (id) => `/usuarios/${id}`,
+  STATS:         "/usuarios/count/usuarios-stats",
+  REPORTE:       "/usuarios/reporte/detallado",
+},
+ALUMNOS: {
+  BASE:      "/alumnos",
+  MI_PERFIL: "/alumno/mi-perfil",
+  DIA_CORTE: "/alumno/gestion/resumen-cortes",
+},
+COORDINADORES: {
+  BASE:  "/coordinadores",
+  BY_ID: (id) => `/coordinadores/${id}`,
+},
+```
+
+## Explore by role
+
+<CardGroup cols={2}>
+  <Card title="Students" icon="user-graduate" href="/api-reference/users/students">
+    Student endpoints, profile fields, self-service routes, and the Excel report.
+  </Card>
+  <Card title="Coordinators" icon="chalkboard-teacher" href="/api-reference/users/coordinators">
+    Coordinator and professor endpoints and profile fields.
+  </Card>
+</CardGroup>

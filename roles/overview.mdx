@@ -1,0 +1,133 @@
+---
+title: "User roles overview"
+description: "Learn about the three user roles in Academia Gema—Administrador, Coordinador, and Alumno—and how role-based routing is enforced across the platform."
+---
+
+Academia Gema uses three distinct roles to separate concerns across the platform. Each role maps to a dedicated dashboard layout, a set of protected routes, and a specific subset of API endpoints.
+
+## Role definitions
+
+Roles are stored in the `roles` database table with a simple structure:
+
+```sql
+CREATE TABLE roles (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(50) UNIQUE NOT NULL -- e.g. 'ADMIN', 'PROFESOR', 'ALUMNO'
+);
+```
+
+Every user in `usuarios` holds a foreign key to this table via `rol_id`.
+
+## Role comparison
+
+<CardGroup cols={3}>
+  <Card title="Administrador" icon="shield-halved" href="/roles/admin">
+    Full platform access. Manages students, coordinators, schedules, finances, locations, and system parameters. Uses the complete `DashboardLayout` sidebar.
+  </Card>
+  <Card title="Coordinador" icon="chalkboard-teacher" href="/roles/coordinator">
+    Focused on attendance management. Sees the minimalist `TeacherLayout` and accesses the training schedule, cut-day reports, and their own profile.
+  </Card>
+  <Card title="Alumno" icon="person-running" href="/roles/student">
+    Self-service portal for enrolling in classes, tracking attendance, reporting payments, and logging injuries. Uses the mobile-responsive `StudentLayout`.
+  </Card>
+</CardGroup>
+
+## Allowed role strings per group
+
+The front-end router accepts multiple string variants for each role to maintain backwards compatibility across API versions:
+
+| Group | Accepted role strings | Dashboard path |
+|---|---|---|
+| Student | `Alumno`, `student`, `alumno` | `/dashboard/student` |
+| Coordinator | `Coordinador`, `teacher`, `profesor` | `/dashboard/teacher` |
+| Administrator | `Administrador`, `admin`, `administrador` | `/dashboard/admin` |
+
+## How ProtectedRoute works
+
+Every authenticated section of the app is wrapped by the `ProtectedRoute` component (`src/components/ProtectedRoute.jsx`). It performs two checks on every render:
+
+<Steps>
+  <Step title="Authentication check">
+    Reads the current user from `AuthContext`. If no user is found it redirects immediately to `/login`.
+  </Step>
+  <Step title="Role authorisation check">
+    Reads the role from `user.rol`, `user.user.rol`, or the `user_role` cookie as a fallback. If the role is not in the `allowedRoles` array, the user is redirected to `/forbidden`.
+  </Step>
+  <Step title="Render outlet">
+    If both checks pass, React Router's `<Outlet />` is rendered, mounting the appropriate layout and child pages.
+  </Step>
+</Steps>
+
+```jsx
+// src/components/ProtectedRoute.jsx
+const ProtectedRoute = ({ allowedRoles }) => {
+    const { user, loading } = useAuth();
+
+    if (loading) return <LoadingSpinner />;
+
+    const isAuthenticated = !!user;
+    if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+    const currentRole = user?.rol || user?.user?.rol || Cookies.get('user_role');
+
+    if (allowedRoles && (!currentRole || !allowedRoles.includes(currentRole))) {
+        return <Navigate to="/forbidden" replace />;
+    }
+
+    return <Outlet />;
+};
+```
+
+In `App.jsx` each group is declared as:
+
+```jsx
+// Student group
+<Route element={<ProtectedRoute allowedRoles={['Alumno', 'student', 'alumno']} />}>
+  <Route element={<StudentLayout />}>
+    <Route path="student" element={<DashboardEstudiante />} />
+    {/* … */}
+  </Route>
+</Route>
+
+// Coordinator group
+<Route element={<ProtectedRoute allowedRoles={['Coordinador', 'teacher', 'profesor']} />}>
+  <Route element={<TeacherLayout />}>
+    <Route path="teacher" element={<DashboardTeacher />} />
+    {/* … */}
+  </Route>
+</Route>
+
+// Administrator group
+<Route element={<ProtectedRoute allowedRoles={['Administrador', 'admin', 'administrador']} />}>
+  <Route element={<DashboardLayout />}>
+    <Route path="admin" element={<Dashboard role="admin" />} />
+    {/* … */}
+  </Route>
+</Route>
+```
+
+## Capability matrix
+
+| Capability | Administrador | Coordinador | Alumno |
+|---|:---:|:---:|:---:|
+| View executive dashboard & charts | ✅ | ❌ | ❌ |
+| Manage students (CRUD) | ✅ | ❌ | ❌ |
+| Manage coordinators | ✅ | ❌ | ❌ |
+| Manage schedules & rescheduling | ✅ | ❌ | ❌ |
+| Validate payments | ✅ | ❌ | ❌ |
+| Manage locations & courts | ✅ | ❌ | ❌ |
+| Manage subscription catalog | ✅ | ❌ | ❌ |
+| View & manage benefits | ✅ | ❌ | ❌ |
+| Export master Excel report | ✅ | ❌ | ❌ |
+| Take / review attendance | ❌ | ✅ | ❌ |
+| View cut-day student list | ❌ | ✅ | ❌ |
+| Edit own coordinator profile | ❌ | ✅ | ❌ |
+| View enrolled classes | ❌ | ❌ | ✅ |
+| Self-enroll in classes | ❌ | ❌ | ✅ |
+| Report & track own payments | ❌ | ❌ | ✅ |
+| Log injuries & view recoveries | ❌ | ❌ | ✅ |
+| Read club news feed | ❌ | ❌ | ✅ |
+
+<Note>
+  Role strings are compared with strict equality (`includes(currentRole)`). Make sure the value stored in the session or cookie matches one of the accepted strings listed above exactly.
+</Note>

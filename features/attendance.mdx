@@ -1,0 +1,139 @@
+---
+title: "Attendance tracking"
+description: "How coordinators mark attendance and how students view their attendance history at Academia Gema."
+---
+
+Attendance tracking records whether each enrolled student was present for every scheduled session. Coordinators mark attendance from their dashboard after each class. Students can review their own history and statistics at any time.
+
+## Attendance states
+
+Each attendance record (`registros_asistencia`) uses one of four states:
+
+```sql
+CREATE TABLE registros_asistencia (
+    id SERIAL PRIMARY KEY,
+    inscripcion_id INT NOT NULL REFERENCES inscripciones(id),
+    fecha DATE NOT NULL,
+    estado VARCHAR(20) DEFAULT 'PRESENTE'
+        CHECK (estado IN ('PRESENTE', 'AUSENTE', 'TARDE', 'JUSTIFICADO')),
+    registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT asistencia_unica_diaria UNIQUE (inscripcion_id, fecha)
+);
+```
+
+| State | Meaning |
+|---|---|
+| `PRESENTE` | Student attended the session |
+| `AUSENTE` | Student was absent with no justification |
+| `TARDE` | Student arrived late |
+| `JUSTIFICADO` | Absence was medically or officially justified |
+
+<Note>
+The `UNIQUE (inscripcion_id, fecha)` constraint means only one attendance record can exist per enrollment per date. Coordinators update the existing record rather than creating a new one if they revisit a past session.
+</Note>
+
+## Coordinator workflow
+
+Coordinators access attendance through the **Coordinator Dashboard** at `/dashboard/teacher`.
+
+<Steps>
+  <Step title="View the training agenda">
+    The dashboard loads all sessions for the coordinator's assigned schedules, sorted chronologically. Each session card shows the date, level, time range, court, and total number of enrolled athletes.
+
+    Coordinators can filter the agenda by month and year using the dropdowns at the top of the page.
+  </Step>
+  <Step title="Select a session">
+    Click **TOMAR ASISTENCIA** on a past or current session. Future sessions are locked — the button is disabled until that date arrives.
+
+    Sessions where attendance has already been fully recorded show a **SESIÓN FINALIZADA** badge. Coordinators can still open them by clicking **VER ASISTENCIA** to review or correct records.
+  </Step>
+  <Step title="Mark each student's status">
+    The attendance modal (`AttendanceModal`) lists every enrolled student for that session. For each student, the coordinator selects one of the four states: PRESENTE, AUSENTE, TARDE, or JUSTIFICADO.
+
+    Students marked as **JUSTIFICADO** are flagged in the system as blocked by medically-justified absence.
+  </Step>
+  <Step title="Submit attendance">
+    Clicking submit sends all attendance records in a single batch request:
+
+    ```js
+    // asistencia.service.js
+    await apiFetch.post(`${API_ROUTES.ASISTENCIAS.BASE}/masiva`, {
+      asistencias // [{id: 44, estado: 'PRESENTE'}, {id: 45, estado: 'AUSENTE'}, ...]
+    });
+    ```
+
+    Individual records can also be updated one at a time using `PATCH /asistencias/:id`.
+  </Step>
+</Steps>
+
+<Warning>
+Students marked as **JUSTIFICADO** (medically justified absence) are automatically flagged in the payment system. Their payments may be blocked for recovery class processing until the situation is resolved.
+</Warning>
+
+## Reprogrammed sessions
+
+When a session has been bulk-rescheduled by an admin, the coordinator's dashboard automatically shows the **overridden time range** instead of the original. A **REPROGRAMADA (ADMIN)** badge appears on the session card so coordinators know the session time has changed.
+
+```js
+// DashboardTeacher.jsx — time override from reprogramaciones_clases
+if (reg.reprogramaciones_clases) {
+  timeRange = `${reg.reprogramaciones_clases.hora_inicio_destino}`
+    + ` - ${reg.reprogramaciones_clases.hora_fin_destino}`;
+  reprogramacionData = reg.reprogramaciones_clases;
+}
+```
+
+## Student attendance history
+
+Students can view their own attendance records and statistics from the student dashboard.
+
+<Columns cols={2}>
+  <Card title="Attendance history" icon="calendar-days">
+    Fetched from `GET /asistencias/alumno/:id` — returns a list of all attendance records for the student, grouped by schedule.
+  </Card>
+  <Card title="Statistics" icon="chart-bar">
+    Fetched from `GET /asistencias/alumno/:id/estadisticas` — returns aggregate stats such as total present, absent, late, and justified counts.
+  </Card>
+</Columns>
+
+## Dia de corte (cut day)
+
+The **dia de corte** feature is a coordinator tool for reviewing enrollment summaries at a billing cutoff point. It provides a snapshot of which students have active enrollments as of a given date, used to calculate which students owe payments for the upcoming period.
+
+The summary is fetched from:
+
+```js
+GET /alumno/gestion/resumen-cortes
+```
+
+<Tip>
+Use the dia de corte report before generating `cuentas_por_cobrar` (accounts receivable) for a new billing cycle. It tells you exactly which students were active at the cutoff and should receive a charge.
+</Tip>
+
+## API reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/asistencias/agenda` | Coordinator's full session agenda |
+| `POST` | `/asistencias/masiva` | Submit batch attendance for a session |
+| `PATCH` | `/asistencias/:id` | Update a single attendance record |
+| `GET` | `/asistencias/alumno/:id` | Student's full attendance history |
+| `GET` | `/asistencias/alumno/:id/estadisticas` | Student's attendance statistics |
+| `GET` | `/alumno/gestion/resumen-cortes` | Enrollment summary at billing cutoff |
+
+## Common questions
+
+<AccordionGroup>
+  <Accordion title="Can coordinators edit attendance after submission?">
+    Yes. Coordinators can reopen any past session by clicking **VER ASISTENCIA**. The attendance modal allows individual records to be updated with `PATCH /asistencias/:id`.
+  </Accordion>
+  <Accordion title="What happens if a student is marked JUSTIFICADO?">
+    The student is flagged in the payment management panel. Their pending payments may be marked as **BLOQUEADO POR ASISTENCIA** and require administrator review before validation.
+  </Accordion>
+  <Accordion title="Why is my future session button disabled?">
+    Sessions with a date strictly in the future are locked (`isFuture: true`). The **TOMAR ASISTENCIA** button is only enabled on today's session or any past session.
+  </Accordion>
+  <Accordion title="What is the difference between TARDE and AUSENTE?">
+    `TARDE` records that the student eventually arrived but was late. `AUSENTE` means the student did not attend at all. Both count as non-full attendance in statistics, but `TARDE` does not trigger the same debt-blocking behaviour as `JUSTIFICADO`.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,254 @@
+---
+title: "Payments"
+description: "Report, validate, and track student payments, accounts receivable, discounts, and payment methods for Academia Gema."
+---
+
+The Payments API covers the full financial lifecycle: a student reports a payment they have made, an admin validates or rejects it, and the system updates the corresponding `cuentas_por_cobrar` record. Benefit discounts and payment method configuration are also managed here.
+
+---
+
+## Accounts receivable states
+
+Each `cuentas_por_cobrar` record transitions through the following states:
+
+| State | Description |
+|---|---|
+| `PENDIENTE` | Invoice generated, no payment reported yet. |
+| `PARCIAL` | A partial payment has been validated. |
+| `PAGADO` | The full amount has been paid and validated. |
+| `VENCIDO` | The due date has passed without full payment. |
+| `CANCELADO` | The debt was manually cancelled by an admin. |
+
+A `POR_VALIDAR` state exists at the payment (`pagos`) level when a student has reported a payment but an admin has not yet validated it.
+
+---
+
+## Endpoints
+
+<Tabs>
+  <Tab title="Student">
+
+### Report a payment
+
+**`POST /pagos/reportar`** — A student reports a payment they have made externally (e.g., bank transfer). The payment is created in `PENDIENTE` validation state until an admin reviews it.
+
+<ParamField body="cuenta_id" type="number" required>
+  The ID of the `cuentas_por_cobrar` record this payment applies to.
+</ParamField>
+
+<ParamField body="monto_pagado" type="number" required>
+  Amount paid in PEN.
+</ParamField>
+
+<ParamField body="metodo_pago_id" type="number" required>
+  ID of the payment method used. See `GET /metodos-pago` for the list.
+</ParamField>
+
+<ParamField body="codigo_operacion" type="string" required>
+  Transaction reference code from the student's bank or payment app.
+</ParamField>
+
+<ParamField body="fecha_pago" type="string">
+  Date and time of the payment in ISO 8601 format. Defaults to the current timestamp.
+</ParamField>
+
+<ParamField body="comprobante_url" type="string">
+  URL of the uploaded payment proof image (Cloudinary).
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request POST \
+  --url https://api.academiagema.com/pagos/reportar \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "cuenta_id": 14,
+    "monto_pagado": 150.00,
+    "metodo_pago_id": 2,
+    "codigo_operacion": "TXN-20260315-001"
+  }'
+```
+
+```javascript JavaScript (from Payments.jsx)
+const [resDebts, resPayments] = await Promise.all([
+  apiFetch.get(API_ROUTES.CUENTAS_POR_COBRAR.HISTORIAL(userId)),
+  apiFetch.get(API_ROUTES.PAGOS.ALUMNO_HISTORIAL(userId)),
+]);
+```
+
+</CodeGroup>
+
+### Student payment history
+
+**`GET /pagos/alumno/{id}`** — Returns all payment reports submitted by a specific student.
+
+<ParamField path="id" type="number" required>
+  The student's `usuario_id`.
+</ParamField>
+
+<ResponseField name="data" type="object[]">
+  Chronological list of payment reports.
+  <Expandable title="Payment object">
+    <ResponseField name="id" type="number">Payment ID.</ResponseField>
+    <ResponseField name="monto_pagado" type="number">Reported amount in PEN.</ResponseField>
+    <ResponseField name="fecha_pago" type="string">Payment timestamp.</ResponseField>
+    <ResponseField name="codigo_operacion" type="string">Bank transaction reference.</ResponseField>
+    <ResponseField name="estado_validacion" type="string">`PENDIENTE`, `APROBADO`, or `RECHAZADO`.</ResponseField>
+    <ResponseField name="metodos_pago" type="object">
+      <Expandable title="metodo">
+        <ResponseField name="nombre" type="string">Payment method name (e.g., `"Yape"`, `"Transferencia"`).</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Accounts receivable history
+
+**`GET /cuentas-por-cobrar/historial/{id}`** — Returns all `cuentas_por_cobrar` records for a student, including their partial payments. Used on the student Payments page to show outstanding balances.
+
+<ParamField path="id" type="number" required>
+  The student's `usuario_id`.
+</ParamField>
+
+<ResponseField name="data" type="object[]">
+  <Expandable title="Cuenta object">
+    <ResponseField name="id" type="number">Account receivable ID.</ResponseField>
+    <ResponseField name="concepto" type="string">Billing concept (e.g., `"Mensualidad Marzo 2026"`).</ResponseField>
+    <ResponseField name="monto" type="number">Original amount billed.</ResponseField>
+    <ResponseField name="monto_final" type="number">Final amount after any applied discounts.</ResponseField>
+    <ResponseField name="fecha_vencimiento" type="string">Due date in `YYYY-MM-DD` format.</ResponseField>
+    <ResponseField name="estado" type="string">Account state: `PENDIENTE`, `PARCIAL`, `PAGADO`, `VENCIDO`, or `CANCELADO`.</ResponseField>
+    <ResponseField name="pagos" type="object[]">
+      Partial payment records linked to this account.
+      <Expandable title="pago">
+        <ResponseField name="monto_pagado" type="number">Amount of this payment.</ResponseField>
+        <ResponseField name="estado_validacion" type="string">Validation status of this payment report.</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+  </Tab>
+  <Tab title="Admin">
+
+### Admin payment management list
+
+**`GET /pagos/gestion-admin`** — Returns all payment reports across all students, optimized for the admin payment management screen. Includes student contact details and payment method information.
+
+<CodeGroup>
+
+```javascript JavaScript (from AdminPaymentManager.jsx)
+const response = await apiFetch.get(API_ROUTES.PAGOS.BASEADMIN);
+const result = await response.json();
+// result.data => array of payment objects with nested student info
+```
+
+</CodeGroup>
+
+<ResponseField name="data" type="object[]">
+  <Expandable title="Admin payment object">
+    <ResponseField name="id" type="number">Payment ID.</ResponseField>
+    <ResponseField name="monto_pagado" type="number">Reported amount in PEN.</ResponseField>
+    <ResponseField name="fecha_pago" type="string">Payment timestamp.</ResponseField>
+    <ResponseField name="codigo_operacion" type="string">Transaction reference code.</ResponseField>
+    <ResponseField name="estado_validacion" type="string">`PENDIENTE`, `APROBADO`, or `RECHAZADO`.</ResponseField>
+    <ResponseField name="bloqueado_por_asistencia" type="boolean">Whether this payment is flagged as blocked due to an attendance-related recovery issue.</ResponseField>
+    <ResponseField name="metodos_pago" type="object">
+      <Expandable title="metodo">
+        <ResponseField name="nombre" type="string">Payment method name.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="cuentas_por_cobrar" type="object">
+      <Expandable title="cuenta">
+        <ResponseField name="alumnos" type="object">
+          <Expandable title="alumno">
+            <ResponseField name="usuarios" type="object">
+              <Expandable title="usuario">
+                <ResponseField name="nombres" type="string">Student first name(s).</ResponseField>
+                <ResponseField name="apellidos" type="string">Student last name(s).</ResponseField>
+                <ResponseField name="email" type="string">Student email.</ResponseField>
+                <ResponseField name="telefono_personal" type="string">Student phone number.</ResponseField>
+                <ResponseField name="numero_documento" type="string">Student ID document number.</ResponseField>
+              </Expandable>
+            </ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Validate or reject a payment
+
+**`POST /pagos/validar`** — An admin approves or rejects a student's payment report. Approving a payment updates the corresponding `cuentas_por_cobrar` state.
+
+<ParamField body="pago_id" type="number" required>
+  The ID of the payment report to validate.
+</ParamField>
+
+<ParamField body="estado" type="string" required>
+  Validation decision: `APROBADO` or `RECHAZADO`.
+</ParamField>
+
+<ParamField body="notas" type="string">
+  Optional admin notes explaining the decision (visible to the student).
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request POST \
+  --url https://api.academiagema.com/pagos/validar \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{"pago_id": 55, "estado": "APROBADO"}'
+```
+
+</CodeGroup>
+
+### List all accounts receivable
+
+**`GET /cuentas-por-cobrar`** — Returns all `cuentas_por_cobrar` records system-wide. Useful for bulk billing reports and overdue payment follow-up.
+
+  </Tab>
+</Tabs>
+
+---
+
+## Discounts and benefits
+
+### Apply a discount
+
+**`POST /descuentos/aplicar`** — Applies a discount to a `cuentas_por_cobrar` record using a benefit type. Adjusts the `monto_final` field on the account.
+
+<ParamField body="cuenta_id" type="number" required>
+  The ID of the account receivable to discount.
+</ParamField>
+
+<ParamField body="tipo_beneficio_id" type="number" required>
+  The ID of the benefit type (scholarship, sibling discount, etc.).
+</ParamField>
+
+### List benefit types
+
+**`GET /tipos-beneficio`** — Returns all configured benefit types (e.g., beca, descuento hermano).
+
+### List pending benefits
+
+**`GET /beneficioPendiente`** — Returns benefit applications that are awaiting admin approval.
+
+---
+
+## Payment methods
+
+**`GET /metodos-pago`** — Returns all active payment methods the club accepts (e.g., Yape, Plin, bank transfer). Include a `metodo_pago_id` from this list when calling `POST /pagos/reportar`.
+
+<ResponseField name="data" type="object[]">
+  <Expandable title="Payment method object">
+    <ResponseField name="id" type="number">Method ID.</ResponseField>
+    <ResponseField name="nombre" type="string">Method name (e.g., `"Yape"`, `"Transferencia Bancaria"`).</ResponseField>
+    <ResponseField name="activo" type="boolean">Whether the method is currently available.</ResponseField>
+  </Expandable>
+</ResponseField>

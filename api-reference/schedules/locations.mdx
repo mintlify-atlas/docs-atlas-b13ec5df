@@ -1,0 +1,237 @@
+---
+title: "Locations & courts"
+description: "Manage club locations (sedes), courts (canchas), addresses, and public holidays for Academia Gema."
+---
+
+Academia Gema operates across multiple physical locations. Each **sede** (location) contains one or more **canchas** (courts), and has a normalized **dirección** (address). Holidays (`feriados`) are registered at the system level to automatically exclude them from class scheduling.
+
+---
+
+## Locations (`/sedes`)
+
+### List all locations
+
+**`GET /sedes`** — Returns all sede records with optional query filters.
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url 'https://api.academiagema.com/sedes' \
+  --header 'Authorization: Bearer {token}'
+```
+
+```javascript JavaScript
+const { getAll } = sedeService;
+const result = await getAll({ activo: true });
+```
+
+</CodeGroup>
+
+<ParamField query="activo" type="boolean">
+  Filter by active status. Omit to return all locations regardless of status.
+</ParamField>
+
+<ResponseField name="data" type="object[]">
+  Array of location objects.
+  <Expandable title="Sede object">
+    <ResponseField name="id" type="number">Unique location ID.</ResponseField>
+    <ResponseField name="nombre" type="string">Location name (e.g., `"Sede Norte"`).</ResponseField>
+    <ResponseField name="activo" type="boolean">Whether the location is currently operational.</ResponseField>
+    <ResponseField name="direccion_id" type="number">Foreign key to the `direcciones` table.</ResponseField>
+    <ResponseField name="direccion" type="object">
+      Nested address object.
+      <Expandable title="direccion">
+        <ResponseField name="calle_principal" type="string">Primary street name.</ResponseField>
+        <ResponseField name="calle_secundaria" type="string">Cross street or landmark reference.</ResponseField>
+        <ResponseField name="ciudad" type="string">City.</ResponseField>
+        <ResponseField name="estado_provincia" type="string">Department or province.</ResponseField>
+        <ResponseField name="codigo_postal" type="string">Postal code.</ResponseField>
+        <ResponseField name="pais" type="string">Country. Defaults to `"Peru"`.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="canchas" type="object[]">
+      Courts that belong to this location.
+      <Expandable title="cancha">
+        <ResponseField name="id" type="number">Court ID.</ResponseField>
+        <ResponseField name="nombre" type="string">Court name.</ResponseField>
+        <ResponseField name="descripcion" type="string">Optional description.</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### List active locations
+
+**`GET /sedes/activas`** — Shorthand for `GET /sedes` filtered to `activo = true`. Used on public-facing pages.
+
+### Get a location by ID
+
+**`GET /sedes/{id}`** — Returns a single sede record by its numeric ID.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the location.
+</ParamField>
+
+### Occupancy dashboard
+
+**`GET /sedes/dashboard/ocupacion`** — Returns occupancy statistics per location, showing how many active schedules and enrolled students each sede has. Used in the admin dashboard.
+
+<ResponseField name="data" type="object[]">
+  <Expandable title="Occupancy stats object">
+    <ResponseField name="sede_id" type="number">Location ID.</ResponseField>
+    <ResponseField name="sede_nombre" type="string">Location name.</ResponseField>
+    <ResponseField name="total_horarios" type="number">Number of active schedules at this location.</ResponseField>
+    <ResponseField name="total_inscritos" type="number">Total active student enrollments across all schedules at this location.</ResponseField>
+    <ResponseField name="ocupacion_promedio" type="number">Average fill rate across all courts as a percentage.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Create a location
+
+**`POST /sedes`** — Creates a new sede. Requires admin privileges.
+
+<ParamField body="nombre" type="string" required>
+  Name of the new location.
+</ParamField>
+
+<ParamField body="direccion" type="object" required>
+  Address details for the new location.
+  <Expandable title="direccion fields">
+    <ParamField body="calle_principal" type="string" required>Primary street.</ParamField>
+    <ParamField body="calle_secundaria" type="string">Cross street or reference.</ParamField>
+    <ParamField body="ciudad" type="string" required>City.</ParamField>
+    <ParamField body="estado_provincia" type="string">Department or province.</ParamField>
+    <ParamField body="codigo_postal" type="string">Postal code.</ParamField>
+    <ParamField body="pais" type="string" default="Peru">Country.</ParamField>
+  </Expandable>
+</ParamField>
+
+### Update a location
+
+**`PUT /sedes/{id}`** — Updates an existing sede. Accepts the same body fields as `POST /sedes`.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the location to update.
+</ParamField>
+
+### Delete a location
+
+**`DELETE /sedes/{id}`** — Removes a sede. Will fail if active courts or schedules reference it.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the location to delete.
+</ParamField>
+
+---
+
+## Courts (`/canchas`)
+
+Courts are the physical playing spaces within a location. Each schedule is tied to a specific court, enforcing the uniqueness constraint `(cancha_id, dia_semana, hora_inicio)`.
+
+### List all courts
+
+**`GET /canchas`** — Returns all court records, including their parent sede.
+
+<ResponseField name="data" type="object[]">
+  <Expandable title="Cancha object">
+    <ResponseField name="id" type="number">Court ID.</ResponseField>
+    <ResponseField name="sede_id" type="number">Parent location ID.</ResponseField>
+    <ResponseField name="nombre" type="string">Court name (e.g., `"Cancha 1 - Techada"`).</ResponseField>
+    <ResponseField name="descripcion" type="string">Optional free-text description.</ResponseField>
+    <ResponseField name="sede" type="object">
+      <Expandable title="sede">
+        <ResponseField name="id" type="number">Location ID.</ResponseField>
+        <ResponseField name="nombre" type="string">Location name.</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### List active courts
+
+**`GET /canchas/activas`** — Returns only courts whose parent sede has `activo = true`.
+
+---
+
+## Address schema (`/direcciones`)
+
+Addresses are stored in a normalized `direcciones` table and referenced by `sedes` via `direccion_id`. The schema is:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `SERIAL` | Primary key |
+| `calle_principal` | `VARCHAR(255)` | Required |
+| `calle_secundaria` | `VARCHAR(255)` | Cross street or landmark |
+| `ciudad` | `VARCHAR(100)` | Required — indexed for search |
+| `estado_provincia` | `VARCHAR(100)` | Department / province |
+| `codigo_postal` | `VARCHAR(20)` | |
+| `pais` | `VARCHAR(50)` | Defaults to `'Peru'` |
+| `creado_en` | `TIMESTAMP` | Auto-set on insert |
+
+<Note>
+Addresses are created automatically as part of `POST /sedes`. You do not need to POST to `/direcciones` directly.
+</Note>
+
+---
+
+## Holidays (`/feriados`)
+
+Holidays mark days on which classes are suspended. When a holiday falls on a scheduled class day, the system skips class generation for that date and may automatically issue recovery tickets to affected students.
+
+### List all holidays
+
+**`GET /feriados`** — Returns all registered holidays.
+
+<ResponseField name="data" type="object[]">
+  <Expandable title="Feriado object">
+    <ResponseField name="id" type="number">Holiday ID.</ResponseField>
+    <ResponseField name="nombre" type="string">Name of the holiday (e.g., `"Día del Trabajo"`).</ResponseField>
+    <ResponseField name="fecha" type="string">Date in `YYYY-MM-DD` format.</ResponseField>
+    <ResponseField name="descripcion" type="string">Optional additional context.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Create a holiday
+
+**`POST /feriados`** — Registers a new holiday date. Requires admin privileges.
+
+<ParamField body="nombre" type="string" required>
+  Descriptive name for the holiday.
+</ParamField>
+
+<ParamField body="fecha" type="string" required>
+  Date of the holiday in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Optional notes about the holiday.
+</ParamField>
+
+### Get a holiday by ID
+
+**`GET /feriados/{id}`** — Returns a single holiday record.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the holiday.
+</ParamField>
+
+### Update a holiday
+
+**`PUT /feriados/{id}`** — Updates name, date, or description of an existing holiday.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the holiday to update.
+</ParamField>
+
+### Delete a holiday
+
+**`DELETE /feriados/{id}`** — Removes a holiday record.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the holiday to delete.
+</ParamField>
+
+<Warning>
+Deleting a holiday does not automatically regenerate class sessions for that date. Coordinate with the scheduling team before removing holidays that fall within the current academic period.
+</Warning>

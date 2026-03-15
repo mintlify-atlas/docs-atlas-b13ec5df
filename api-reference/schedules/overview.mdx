@@ -1,0 +1,222 @@
+---
+title: "Schedules"
+description: "Manage weekly class schedules, mass rescheduling operations, and class session tracking for Academia Gema."
+---
+
+The Schedules API manages the recurring weekly timetable for the club. Each schedule (`horario`) defines a fixed weekly slot: which court, which coordinator, which training level, which day of the week, and at what time. Attendance and enrollment records are linked to these schedules.
+
+## Schedules
+
+### List all schedules
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/horarios \
+  --header 'Authorization: Bearer {token}'
+```
+
+```javascript JavaScript
+const response = await apiFetch.get('/horarios');
+const result = await response.json();
+// result.data => array of schedule objects
+```
+
+</CodeGroup>
+
+**`GET /horarios`** — Returns all schedule records. The response includes nested objects for the associated `cancha` (court), `sede` (location), `nivel` (training level), and assigned `coordinador`.
+
+<ResponseField name="data" type="object[]">
+  Array of schedule objects.
+  <Expandable title="Schedule object">
+    <ResponseField name="id" type="number">Unique schedule identifier.</ResponseField>
+    <ResponseField name="sede_id" type="number">ID of the location (sede) where the class takes place.</ResponseField>
+    <ResponseField name="cancha_id" type="number">ID of the assigned court within the sede.</ResponseField>
+    <ResponseField name="profesor_id" type="number">ID of the professor assigned to the schedule.</ResponseField>
+    <ResponseField name="nivel_id" type="number">ID of the training level for this schedule.</ResponseField>
+    <ResponseField name="dia_semana" type="number">Day of the week as an integer: `1` = Monday through `7` = Sunday.</ResponseField>
+    <ResponseField name="hora_inicio" type="string">Class start time in `HH:MM:SS` format (24-hour).</ResponseField>
+    <ResponseField name="hora_fin" type="string">Class end time in `HH:MM:SS` format (24-hour).</ResponseField>
+    <ResponseField name="capacidad_max" type="number">Maximum number of students allowed. Defaults to `20`.</ResponseField>
+    <ResponseField name="activo" type="boolean">Whether the schedule is currently active.</ResponseField>
+    <ResponseField name="nivel" type="object">
+      Nested training level object.
+      <Expandable title="nivel">
+        <ResponseField name="id" type="number">Level ID.</ResponseField>
+        <ResponseField name="nombre" type="string">Level name (e.g., `"Principiante"`).</ResponseField>
+        <ResponseField name="precio_mensual" type="number">Monthly fee for this level.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="cancha" type="object">
+      Nested court object.
+      <Expandable title="cancha">
+        <ResponseField name="id" type="number">Court ID.</ResponseField>
+        <ResponseField name="nombre" type="string">Court name (e.g., `"Cancha 1 - Techada"`).</ResponseField>
+        <ResponseField name="sede" type="object">
+          <Expandable title="sede">
+            <ResponseField name="id" type="number">Location ID.</ResponseField>
+            <ResponseField name="nombre" type="string">Location name.</ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="coordinador" type="object">
+      Nested coordinator user object.
+      <Expandable title="coordinador">
+        <ResponseField name="nombre_completo" type="string">Full name of the assigned coordinator.</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Create a schedule
+
+**`POST /horarios`** — Creates a new weekly schedule slot. Requires admin privileges.
+
+<Warning>
+The combination of `cancha_id`, `dia_semana`, and `hora_inicio` must be unique. Attempting to create a duplicate will return a `409 Conflict` error.
+</Warning>
+
+<ParamField body="sede_id" type="number" required>
+  ID of the sede (location) where the class will be held.
+</ParamField>
+
+<ParamField body="cancha_id" type="number" required>
+  ID of the specific court within that sede.
+</ParamField>
+
+<ParamField body="profesor_id" type="number" required>
+  ID of the professor (`profesores.usuario_id`) assigned to teach the class.
+</ParamField>
+
+<ParamField body="nivel_id" type="number" required>
+  ID of the training level (`niveles_entrenamiento`) for this schedule.
+</ParamField>
+
+<ParamField body="dia_semana" type="number" required>
+  Integer from `1` (Monday) to `7` (Sunday) indicating the day of the week.
+</ParamField>
+
+<ParamField body="hora_inicio" type="string" required>
+  Start time in `HH:MM` or `HH:MM:SS` format.
+</ParamField>
+
+<ParamField body="hora_fin" type="string" required>
+  End time in `HH:MM` or `HH:MM:SS` format.
+</ParamField>
+
+<ParamField body="capacidad_max" type="number" default="20">
+  Maximum student capacity for this slot.
+</ParamField>
+
+<ParamField body="activo" type="boolean" default="true">
+  Whether the schedule is immediately active upon creation.
+</ParamField>
+
+### Update a schedule
+
+**`PUT /horarios/{id}`** — Updates any field of an existing schedule. Requires admin privileges. Accepts the same body fields as `POST /horarios`.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the schedule to update.
+</ParamField>
+
+### Delete a schedule
+
+**`DELETE /horarios/{id}`** — Deletes or deactivates a schedule. If there are active enrollments linked to the schedule, the API will reject the deletion to preserve data integrity.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the schedule to delete.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request DELETE \
+  --url https://api.academiagema.com/horarios/42 \
+  --header 'Authorization: Bearer {token}'
+```
+
+```javascript JavaScript
+const res = await apiFetch.delete(`/horarios/${id}`);
+if (res.ok) {
+  // Schedule removed, refresh the list
+  fetchHorarios();
+} else {
+  const err = await res.json();
+  console.error(err.message);
+}
+```
+
+</CodeGroup>
+
+---
+
+## Mass rescheduling (`/clases`)
+
+Mass rescheduling allows coordinators to move all classes for a given schedule to a different time or cancel them for a date range, without losing attendance history.
+
+### Trigger a mass reschedule
+
+**`POST /clases/reprogramar-masivo`** — Moves all future class instances for a schedule to a new time or cancels them for a specified date range.
+
+<ParamField body="horario_id" type="number" required>
+  The ID of the schedule whose future class instances will be affected.
+</ParamField>
+
+<ParamField body="fecha_inicio" type="string" required>
+  Start date of the rescheduling window in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="fecha_fin" type="string" required>
+  End date of the rescheduling window in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="nueva_hora_inicio" type="string">
+  New start time for the rescheduled classes. Required unless classes are being cancelled.
+</ParamField>
+
+<ParamField body="nueva_hora_fin" type="string">
+  New end time for the rescheduled classes.
+</ParamField>
+
+<ParamField body="motivo" type="string">
+  Human-readable reason for the mass reschedule (shown to students in notifications).
+</ParamField>
+
+### Revert a mass reschedule
+
+**`POST /clases/revertir-masivo`** — Reverts a previously applied mass rescheduling operation, restoring classes to their original times.
+
+<ParamField body="reprogramacion_id" type="number" required>
+  The ID of the active mass rescheduling operation to revert.
+</ParamField>
+
+### List active mass reschedules
+
+**`GET /clases/reprogramaciones-masivas-activas`** — Returns all mass rescheduling operations that are currently in effect.
+
+<ResponseField name="data" type="object[]">
+  List of active rescheduling operations.
+  <Expandable title="Operation object">
+    <ResponseField name="id" type="number">Operation ID.</ResponseField>
+    <ResponseField name="horario_id" type="number">Affected schedule ID.</ResponseField>
+    <ResponseField name="fecha_inicio" type="string">Start of the affected window.</ResponseField>
+    <ResponseField name="fecha_fin" type="string">End of the affected window.</ResponseField>
+    <ResponseField name="motivo" type="string">Reason for the change.</ResponseField>
+    <ResponseField name="creado_en" type="string">Timestamp when the operation was created.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### List schedules with attendance
+
+**`GET /clases/horarios-con-asistencia`** — Returns all schedules enriched with the attendance records for the current day. Used by coordinators to take roll-call.
+
+<Note>
+This endpoint is also used as the entry point for the coordinator attendance view. See [Attendance](/api-reference/attendance/overview) for details on marking attendance records.
+</Note>
+
+<ResponseField name="data" type="object[]">
+  Array of schedule objects, each including an `asistencias` array for today's enrolled students and their current attendance state.
+</ResponseField>

@@ -1,0 +1,132 @@
+---
+title: "Training levels"
+description: "Manage training levels (niveles) that classify class difficulty and set monthly pricing for Academia Gema."
+---
+
+Training levels (`niveles_entrenamiento`) define the skill tier of a class — for example, *Principiante*, *Intermedio*, or *Avanzado*. Each level carries a monthly fee (`precio_mensual`) that drives billing when a student enrolls in a schedule assigned to that level.
+
+On the public home page, visitors can filter available class schedules by level before signing up.
+
+---
+
+## Endpoints
+
+### List all levels
+
+**`GET /niveles`** — Returns all training levels in the system.
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/niveles \
+  --header 'Authorization: Bearer {token}'
+```
+
+```javascript JavaScript
+const response = await apiFetch.get('/niveles');
+const result = await response.json();
+// result.data => array of nivel objects
+```
+
+</CodeGroup>
+
+<ResponseField name="data" type="object[]">
+  Array of training level objects.
+  <Expandable title="Nivel object">
+    <ResponseField name="id" type="number">Unique level ID.</ResponseField>
+    <ResponseField name="nombre" type="string">Display name of the level (e.g., `"Principiante"`, `"Intermedio"`, `"Avanzado"`).</ResponseField>
+    <ResponseField name="precio_mensual" type="number">Monthly membership fee in Peruvian soles (PEN) for students enrolled in schedules at this level.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Get a level by ID
+
+**`GET /niveles/{id}`** — Returns a single training level record.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the training level.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/niveles/3 \
+  --header 'Authorization: Bearer {token}'
+```
+
+</CodeGroup>
+
+### Create a level
+
+**`POST /niveles`** — Creates a new training level. Requires admin privileges.
+
+<ParamField body="nombre" type="string" required>
+  The display name for the new level. Must be unique.
+</ParamField>
+
+<ParamField body="precio_mensual" type="number" required>
+  Monthly fee in PEN that students at this level are billed. Must be a positive decimal (e.g., `150.00`).
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request POST \
+  --url https://api.academiagema.com/niveles \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{"nombre": "Avanzado", "precio_mensual": 200.00}'
+```
+
+</CodeGroup>
+
+### Update a level
+
+**`PUT /niveles/{id}`** — Updates the name or pricing of an existing level. Requires admin privileges.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the level to update.
+</ParamField>
+
+<ParamField body="nombre" type="string">
+  New display name for the level.
+</ParamField>
+
+<ParamField body="precio_mensual" type="number">
+  Updated monthly fee in PEN.
+</ParamField>
+
+<Warning>
+Changing `precio_mensual` affects billing for **new** billing cycles only. Existing `cuentas_por_cobrar` records that have already been generated are not retroactively updated.
+</Warning>
+
+---
+
+## Database schema
+
+Levels are stored in the `niveles_entrenamiento` table:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `SERIAL` | Primary key |
+| `nombre` | `VARCHAR(50)` | Level name, required |
+| `precio_mensual` | `DECIMAL(10,2)` | Monthly fee in PEN, required |
+
+The `horarios_clases` table references `niveles_entrenamiento` via `nivel_id`. This means every schedule inherits a pricing tier, and every enrolled student's monthly invoice is derived from the level of their schedule.
+
+---
+
+## How levels are used on the home page
+
+The public schedule browser calls `GET /niveles` to populate a filter dropdown. When a visitor selects a level, the front-end filters the schedule cards returned by `GET /horarios` to show only those where `nivel_id` matches the selected level.
+
+```javascript
+// Example: filter schedules client-side by level
+const horariosFiltrados = horarios.filter(
+  (h) => h.nivel_id === nivelSeleccionado
+);
+```
+
+This allows prospective students to find a class that matches their experience before creating an account.

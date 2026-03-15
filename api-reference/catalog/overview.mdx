@@ -1,0 +1,211 @@
+---
+title: "Catalog & pricing plans"
+description: "Manage the club's public pricing catalog and system-wide configuration parameters for Academia Gema."
+---
+
+The Catalog (`catalogo`) stores the pricing plans displayed on the club's public-facing Pricing page. Each plan represents a bundle of weekly classes at a given price point. System parameters (`parametros`) store global configuration values such as billing cutoff dates, late-fee rules, and other tunable settings.
+
+---
+
+## Catalog (`/catalogo`)
+
+### List all plans
+
+**`GET /catalogo`** — Returns all catalog records including inactive and expired plans. Intended for admin management views.
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/catalogo \
+  --header 'Authorization: Bearer {token}'
+```
+
+```javascript JavaScript (from catalogo.service.js)
+// Admin: get all plans
+const result = await catalogoService.getAll();
+```
+
+</CodeGroup>
+
+<ResponseField name="data" type="object[]">
+  Array of catalog plan objects.
+  <Expandable title="Catalog plan object">
+    <ResponseField name="id" type="number">Plan ID.</ResponseField>
+    <ResponseField name="nombre" type="string">Plan name (e.g., `"Plan Básico"`, `"Plan Intensivo"`).</ResponseField>
+    <ResponseField name="precio_base" type="number">Base monthly price in PEN before any discounts.</ResponseField>
+    <ResponseField name="cantidad_clases_semanal" type="number">Number of weekly sessions included in this plan.</ResponseField>
+    <ResponseField name="descripcion" type="string">Optional marketing description shown on the Pricing page.</ResponseField>
+    <ResponseField name="activo" type="boolean">Whether the plan is available for selection.</ResponseField>
+    <ResponseField name="vigente_desde" type="string">Date from which this plan is valid, in `YYYY-MM-DD` format.</ResponseField>
+    <ResponseField name="vigente_hasta" type="string">Expiry date for the plan, in `YYYY-MM-DD` format. `null` means no expiry.</ResponseField>
+    <ResponseField name="creado_en" type="string">Creation timestamp.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### List active plans
+
+**`GET /catalogo/activos`** — Returns plans where `activo = true`, regardless of validity dates.
+
+### List current plans
+
+**`GET /catalogo/vigentes`** — Returns plans that are both `activo = true` **and** currently within their validity window (`vigente_desde <= today <= vigente_hasta`). This is the endpoint used on the public-facing Pricing page.
+
+<CodeGroup>
+
+```javascript JavaScript (from catalogo.service.js)
+// Public pricing page: fetch only currently valid plans
+const result = await catalogoService.getVigentes();
+if (!response.ok) {
+  throw new Error('Error al obtener planes vigentes');
+}
+return await response.json();
+```
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/catalogo/vigentes
+```
+
+</CodeGroup>
+
+<Note>
+`GET /catalogo/vigentes` does not require authentication. It is safe to call from the public landing page without a bearer token.
+</Note>
+
+### Get a plan by ID
+
+**`GET /catalogo/{id}`** — Returns a single catalog plan.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the plan.
+</ParamField>
+
+### Create a plan
+
+**`POST /catalogo`** — Creates a new pricing plan. Requires admin privileges.
+
+<ParamField body="nombre" type="string" required>
+  Display name for the plan (shown on the Pricing page).
+</ParamField>
+
+<ParamField body="precio_base" type="number" required>
+  Base monthly price in PEN.
+</ParamField>
+
+<ParamField body="cantidad_clases_semanal" type="number" required>
+  Number of weekly class sessions this plan grants access to.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Marketing description. Shown below the price on the Pricing page.
+</ParamField>
+
+<ParamField body="activo" type="boolean" default="true">
+  Whether the plan is immediately available.
+</ParamField>
+
+<ParamField body="vigente_desde" type="string">
+  Start date for the plan's validity window in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="vigente_hasta" type="string">
+  End date for the plan's validity window in `YYYY-MM-DD` format. Omit for an open-ended plan.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request POST \
+  --url https://api.academiagema.com/catalogo \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "nombre": "Plan Intensivo",
+    "precio_base": 250.00,
+    "cantidad_clases_semanal": 5,
+    "descripcion": "Entrenamiento diario de lunes a viernes.",
+    "activo": true,
+    "vigente_desde": "2026-04-01"
+  }'
+```
+
+</CodeGroup>
+
+### Update a plan
+
+**`PUT /catalogo/{id}`** — Updates an existing catalog plan. Requires admin privileges. Accepts the same body fields as `POST /catalogo`.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the plan to update.
+</ParamField>
+
+<Warning>
+Updating `precio_base` does not retroactively change existing `cuentas_por_cobrar` records. Price changes take effect only on newly generated monthly invoices.
+</Warning>
+
+---
+
+## System parameters (`/parametros`)
+
+System parameters are key-value configuration entries that control club-wide business rules — for example, the billing cutoff day, the late-fee grace period, or the maximum number of recovery sessions allowed per month.
+
+### List all parameters
+
+**`GET /parametros`** — Returns all system parameters. Requires admin privileges.
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/parametros \
+  --header 'Authorization: Bearer {token}'
+```
+
+</CodeGroup>
+
+<ResponseField name="data" type="object[]">
+  <Expandable title="Parameter object">
+    <ResponseField name="id" type="number">Parameter ID.</ResponseField>
+    <ResponseField name="clave" type="string">Machine-readable key (e.g., `"dia_corte_facturacion"`).</ResponseField>
+    <ResponseField name="valor" type="string">Current value as a string. Parse to the appropriate type in the consuming code.</ResponseField>
+    <ResponseField name="descripcion" type="string">Human-readable description of what the parameter controls.</ResponseField>
+    <ResponseField name="actualizado_en" type="string">Timestamp of the last update.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Get a parameter by ID
+
+**`GET /parametros/{id}`** — Returns a single system parameter.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the parameter.
+</ParamField>
+
+### Update a parameter
+
+**`PUT /parametros/{id}`** — Updates the value of a system parameter. Requires admin privileges.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the parameter to update.
+</ParamField>
+
+<ParamField body="valor" type="string" required>
+  The new value for the parameter.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request PUT \
+  --url https://api.academiagema.com/parametros/1 \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{"valor": "5"}'
+```
+
+</CodeGroup>
+
+<Tip>
+Parameter values are always stored as strings. When reading them in application code, cast to the expected type (e.g., `parseInt(valor, 10)` for numeric parameters).
+</Tip>

@@ -1,0 +1,195 @@
+---
+title: "Database migrations"
+description: "How to initialise and manage the Academia Gema PostgreSQL database schema, including index strategy and trigger setup."
+---
+
+The entire Academia Gema schema is defined in a single SQL file: `BD/clubGema.sql`. This file is the source of truth for the database structure and should be applied to a clean PostgreSQL database to bootstrap any environment.
+
+## Initialising the database
+
+<Steps>
+  <Step title="Create the database">
+    Connect to your PostgreSQL server as a superuser and create a dedicated database:
+
+    ```sql
+    CREATE DATABASE club_gema;
+    ```
+  </Step>
+
+  <Step title="Run the schema file">
+    Use the `psql` CLI to apply the full schema in one command:
+
+    ```bash
+    psql -h <host> -U <user> -d club_gema -f BD/clubGema.sql
+    ```
+
+    For a local development instance this is typically:
+
+    ```bash
+    psql -U postgres -d club_gema -f BD/clubGema.sql
+    ```
+
+    The file will execute all `CREATE TABLE`, `CREATE INDEX`, `CREATE FUNCTION`, and `CREATE TRIGGER` statements in order.
+  </Step>
+
+  <Step title="Verify the schema">
+    Connect to the database and list the tables to confirm everything was created:
+
+    ```sql
+    \c club_gema
+    \dt
+    ```
+
+    You should see the following tables:
+
+    ```
+    alumnos
+    canchas
+    credenciales_usuario
+    cuentas_por_cobrar
+    direcciones
+    horarios_clases
+    inscripciones
+    niveles_entrenamiento
+    pagos
+    profesores
+    registros_asistencia
+    roles
+    sedes
+    usuarios
+    ```
+  </Step>
+
+  <Step title="Seed the roles table">
+    The `roles` table must be seeded before any users can be created. The application expects at least these three records:
+
+    ```sql
+    INSERT INTO roles (nombre) VALUES
+        ('ADMIN'),
+        ('PROFESOR'),
+        ('ALUMNO');
+    ```
+  </Step>
+</Steps>
+
+## Schema structure order
+
+The SQL file applies DDL statements in dependency order to avoid foreign key violations:
+
+| Order | Section | Tables created |
+|---|---|---|
+| 1 | Roles & Users | `roles`, `usuarios`, `credenciales_usuario` |
+| 2 | Profiles | `alumnos`, `profesores` |
+| 3 | Infrastructure & Academic | `direcciones`, `sedes`, `canchas`, `niveles_entrenamiento`, `horarios_clases` |
+| 4 | Operations | `inscripciones`, `registros_asistencia` |
+| 5 | Finance | `cuentas_por_cobrar`, `pagos` |
+| 6 | Indexes | All performance indexes |
+| 7 | Triggers | Function + 3 triggers |
+
+## Indexes
+
+The schema creates seven indexes for query performance. All are standard B-tree indexes.
+
+```sql
+-- User lookups
+CREATE INDEX idx_usuarios_email ON usuarios(email);
+CREATE INDEX idx_usuarios_apellidos ON usuarios(apellidos);
+
+-- Enrollment queries
+CREATE INDEX idx_inscripciones_alumno ON inscripciones(alumno_id);
+CREATE INDEX idx_inscripciones_horario ON inscripciones(horario_id);
+
+-- Attendance queries
+CREATE INDEX idx_asistencia_inscripcion ON registros_asistencia(inscripcion_id);
+
+-- Finance queries
+CREATE INDEX idx_cuentas_alumno ON cuentas_por_cobrar(alumno_id);
+CREATE INDEX idx_cuentas_estado_fecha ON cuentas_por_cobrar(estado, fecha_vencimiento);
+
+-- Address lookups
+CREATE INDEX idx_direcciones_ciudad ON direcciones(ciudad);
+```
+
+### Index rationale
+
+| Index | Query it accelerates |
+|---|---|
+| `idx_usuarios_email` | Login lookups — `WHERE email = $1` |
+| `idx_usuarios_apellidos` | Student/coordinator name search in admin panels |
+| `idx_inscripciones_alumno` | Fetching all enrollments for a student |
+| `idx_inscripciones_horario` | Fetching all students in a class schedule |
+| `idx_asistencia_inscripcion` | Loading attendance history for a session |
+| `idx_cuentas_alumno` | Loading all charges for a student |
+| `idx_cuentas_estado_fecha` | Dashboard queries for pending/overdue accounts filtered by date |
+| `idx_direcciones_ciudad` | Location filtering in the admin locations panel |
+
+## Triggers and the timestamp function
+
+Three triggers share a single PL/pgSQL function to auto-update `actualizado_en` on any `UPDATE` operation:
+
+```sql
+CREATE OR REPLACE FUNCTION actualizar_columna_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.actualizado_en = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Applied to three tables
+CREATE TRIGGER trg_actualizar_usuarios
+    BEFORE UPDATE ON usuarios
+    FOR EACH ROW EXECUTE PROCEDURE actualizar_columna_timestamp();
+
+CREATE TRIGGER trg_actualizar_cuentas
+    BEFORE UPDATE ON cuentas_por_cobrar
+    FOR EACH ROW EXECUTE PROCEDURE actualizar_columna_timestamp();
+
+CREATE TRIGGER trg_actualizar_inscripciones
+    BEFORE UPDATE ON inscripciones
+    FOR EACH ROW EXECUTE PROCEDURE actualizar_columna_timestamp();
+```
+
+<Note>
+  The trigger fires `BEFORE UPDATE`, meaning `NEW.actualizado_en` is set before the row is written to disk. You do not need to include `actualizado_en` in your `UPDATE` statements — the trigger handles it automatically.
+</Note>
+
+## Applying schema changes
+
+The project currently uses a single-file schema approach rather than a migration tool like Flyway or Liquibase. When a schema change is needed:
+
+<Steps>
+  <Step title="Edit the SQL file">
+    Add the new `ALTER TABLE`, `CREATE TABLE`, or `DROP` statement to `BD/clubGema.sql` in the appropriate section, maintaining dependency order.
+  </Step>
+  <Step title="Apply against an existing database">
+    For incremental changes on an existing database, extract only the new statement(s) and apply them directly:
+
+    ```bash
+    psql -U postgres -d club_gema -c "ALTER TABLE alumnos ADD COLUMN grupo_sanguineo VARCHAR(5);"
+    ```
+  </Step>
+  <Step title="Re-apply on a clean database">
+    For new environment setup, always use the full `BD/clubGema.sql` file against a fresh database — never apply the file to a database that already has the schema, as `CREATE TABLE` statements will fail without `IF NOT EXISTS` guards.
+  </Step>
+</Steps>
+
+<Warning>
+  The `CREATE TABLE` statements in `BD/clubGema.sql` do not include `IF NOT EXISTS`. Running the file against a database that already has these tables will produce errors. Always apply the full file only to a fresh, empty database.
+</Warning>
+
+## Connection string reference
+
+The back-end API reads database connection details from environment variables. A typical `.env` setup looks like:
+
+```bash
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=club_gema
+DB_USER=postgres
+DB_PASSWORD=your_password
+```
+
+<Tip>
+  For development, consider using a Docker Compose file to spin up a disposable PostgreSQL instance. This makes it trivial to reset the database by destroying and recreating the container, then re-running `BD/clubGema.sql`.
+</Tip>

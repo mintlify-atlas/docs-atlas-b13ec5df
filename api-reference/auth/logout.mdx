@@ -1,0 +1,113 @@
+---
+title: "Logout"
+description: "End the current user session, clear auth cookies, and redirect to the login page."
+---
+
+Terminates the authenticated user's session. The server invalidates the HTTP-only session cookies and the client removes all identity cookies and stale localStorage keys before redirecting to `/login`.
+
+## Endpoint
+
+```
+POST /auth/logout
+```
+
+## Request
+
+No request body is required. The browser automatically sends the session cookie because `credentials: "include"` is set.
+
+## Response
+
+A `200 OK` with no meaningful body signals that the server has invalidated the session. The frontend does not wait for a response body before clearing client-side state — cleanup always runs in the `finally` block regardless of network errors.
+
+## Client-side cleanup
+
+Upon logout the client performs two layers of cleanup:
+
+### Cookies removed
+
+| Cookie | Description |
+|---|---|
+| `user_role` | The user's role string |
+| `user_name` | The user's first name |
+| `user_lastname` | The user's last name |
+| `user_id` | The user's numeric ID |
+
+### localStorage keys removed
+
+| Key | Description |
+|---|---|
+| `auth_sync` | Legacy cross-tab auth synchronisation flag |
+| `logout_sync` | Legacy cross-tab logout synchronisation flag |
+| `last_viewed_news` | Cached ID of the last news item the user viewed |
+
+These keys are described in the code as "old cached data" (`datos antiguos cacheados`) and are removed to prevent stale state from leaking into the next session.
+
+After cleanup the browser is hard-redirected to `/login` via `globalThis.location.href`.
+
+## Code example
+
+The following is the exact `logoutService` implementation from `auth.service.js`:
+
+<CodeGroup>
+```js fetch (auth.service.js)
+import Cookies from 'js-cookie';
+import { API_ROUTES } from '../constants/apiRoutes';
+
+const API_URL = import.meta.env.VITE_API_URL;
+
+export const logoutService = async () => {
+  try {
+    await fetch(`${API_URL}${API_ROUTES.AUTH.LOGOUT}`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (error) {
+    console.error("Error en la petición de logout:", error);
+  } finally {
+    // Always clear cookies, even if the network request failed
+    Cookies.remove('user_role');
+    Cookies.remove('user_name');
+    Cookies.remove('user_lastname');
+    Cookies.remove('user_id');
+
+    // Remove stale cached data to avoid confusion on next login
+    localStorage.removeItem('auth_sync');
+    localStorage.removeItem('logout_sync');
+    localStorage.removeItem('last_viewed_news');
+
+    globalThis.location.href = "/login";
+  }
+};
+```
+
+```bash curl
+curl -X POST https://api.academiagema.com/auth/logout \
+  -b cookies.txt
+```
+</CodeGroup>
+
+## AuthContext integration
+
+The `logout` function in `AuthContext.jsx` wraps `logoutService` and additionally resets React state:
+
+```js
+const logout = async () => {
+  try {
+    await logoutService();
+  } catch (error) {
+    console.error("Error en logout service:", error);
+  } finally {
+    setUser(null);
+    setUserId(null);
+    window.location.href = '/login';
+  }
+};
+```
+
+<Note>
+  The redirect is issued twice — once inside `logoutService` and once in `AuthContext`. In practice the first redirect wins. Both are kept for resilience in case `logoutService` is called outside of React context.
+</Note>
+
+## Session expiry vs explicit logout
+
+When the API interceptor (`api.js`) detects a `401` response on a protected route it attempts a silent token refresh via `POST /auth/refresh`. If the refresh also fails the interceptor performs the same cookie and localStorage cleanup and redirects to `/login` — matching the explicit logout flow.

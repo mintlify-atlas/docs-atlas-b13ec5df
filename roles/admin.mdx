@@ -1,0 +1,142 @@
+---
+title: "Administrator role"
+description: "Everything the Administrador role can do in Academia Gema, from the executive dashboard to CRUD management of every platform entity."
+---
+
+The **Administrador** role has unrestricted access to every area of the platform. Administrators see the full `DashboardLayout` sidebar and are responsible for the day-to-day operation of the club: student and coordinator management, scheduling, financial oversight, and system configuration.
+
+<Note>
+  Accepted role strings: `Administrador`, `admin`, `administrador`. All three grant identical access.
+</Note>
+
+## Admin dashboard — `/dashboard/admin`
+
+The entry point for the admin role is `Dashboard.jsx` rendered with `role="admin"`. On load it fires three parallel API requests:
+
+- `GET /usuarios/count/usuarios-stats` — active student count, coordinator count, active locations, and total pending debt.
+- `GET /pagos/gestion-admin` — full payment history used to build income charts.
+- `GET /sedes/dashboard/ocupacion` — per-location student distribution for the donut chart.
+
+The dashboard is divided into three visual sections:
+
+<CardGroup cols={2}>
+  <Card title="Executive summary" icon="chart-line">
+    Four real-time KPI cards: total students, total coordinators, active locations, and total pending debt (in PEN).
+  </Card>
+  <Card title="Financial intelligence" icon="chart-bar">
+    Three Recharts visualisations: yearly cash-flow area chart (filterable by year), location occupancy donut chart, and a payment-method bar chart (YAPE, PLIN, TRANSFERENCIA, EFECTIVO).
+  </Card>
+  <Card title="Student analytics" icon="users">
+    Gender distribution pie chart and age-range bar chart, both sourced from `/usuarios/count/usuarios-stats`.
+  </Card>
+  <Card title="Master report export" icon="file-spreadsheet">
+    One-click export of a styled `.xlsx` workbook with four sheets: student directory, active enrollments, payment history, and pending accounts.
+  </Card>
+</CardGroup>
+
+## All admin routes
+
+<AccordionGroup>
+  <Accordion title="/dashboard/admin — Main dashboard">
+    Renders `Dashboard.jsx` with `role="admin"`. Displays all KPIs, charts, recent activity feed, and the master report export button.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/students — Student management">
+    `AdminStudentsManager` — full CRUD for students. View the complete student directory, create new student accounts, update personal data, and deactivate records. Fetches from `GET /usuarios/role/alumno`.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/teachers — Coordinator management">
+    `AdminTeachersManager` — manage coordinator accounts. Assign specialisation, set hourly rate (`tarifa_hora`), and view which schedules each coordinator is assigned to.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/schedule — Class schedule management">
+    `AdminSchedulesManager` — create, edit, and deactivate class schedules (`horarios_clases`). Configure day of week, start/end time, court, training level, and maximum capacity.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/reprogramaciones — Bulk rescheduling">
+    `AdminReprogramaciones` — perform mass rescheduling of upcoming sessions. Uses `POST /clases/reprogramar-masivo` to move an entire block of sessions and `POST /clases/revertir-masivo` to undo. Active bulk reschedules are visible via `GET /clases/reprogramaciones-masivas-activas`.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/levels — Training levels management">
+    `AdminLevelsManager` — manage training levels (`niveles_entrenamiento`). Each level has a name and a monthly price that feeds the subscription catalog.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/catalog — Subscription plans catalog">
+    `AdminCatalogManager` — manage the subscription plan catalog (`/catalogo`). Activate, deactivate, or create pricing plans. Active plans are exposed via `GET /catalogo/activos` and currently valid plans via `GET /catalogo/vigentes`.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/locations — Locations management">
+    `AdminLocationsManager` — manage club locations (sedes). Each sede references a `direcciones` record for full address normalisation. Toggle active/inactive status.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/injuries — Injury records management">
+    `AdminInjuriesManager` — view and manage all injury reports submitted by students. Cross-references `GET /lesiones` to track which students are injured and their recovery status.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/publications — Publications management">
+    `AdminPublications` — create and manage club news and announcements. Posts appear in the student news feed at `/dashboard/student/news`. CRUD via `GET/POST/PUT/DELETE /publicaciones`.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/payment-validation — Payment validation">
+    `AdminPaymentManager` — review and validate student payment reports. Students report payments via `POST /pagos/reportar`; admins approve them via `POST /pagos/validar`, changing the state to `APROBADO`.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/guest-passes — Guest passes">
+    `AdminGuestPasses` — issue and track single-use guest passes for prospective students.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/benefits — Benefits management">
+    `AdminBenefits` and `AdminCreateBenefits` — manage benefit types and pending benefit applications. Uses `GET/POST /tipos-beneficio` and `GET /beneficioPendiente`.
+  </Accordion>
+
+  <Accordion title="/dashboard/admin/settings — System settings">
+    `AdminSettings` — edit runtime system parameters (`/parametros`). Parameters control the calculation engine for attendances, payments, and penalties. Changes take effect immediately.
+
+    Parameters are displayed as editable cards. The icon shown for each card is determined by keywords in the parameter key:
+
+    | Key pattern | Icon |
+    |---|---|
+    | `PAGO`, `PRECIO` | Wallet (green) |
+    | `TEMPORADA`, `FECHA` | Calendar (blue) |
+    | `NOTIF`, `AVISO` | Bell (orange) |
+    | `SEGURIDAD`, `AUTH` | ShieldCheck (indigo) |
+    | `SISTEMA`, `DB` | Database (slate) |
+    | (default) | Zap (yellow) |
+
+    <Warning>
+      Changes to system parameters directly affect the calculation engine for attendances, payments, and penalties. Always test in a staging environment before applying to production.
+    </Warning>
+  </Accordion>
+</AccordionGroup>
+
+## Typical admin workflows
+
+<Steps>
+  <Step title="Onboard a new coordinator">
+    Navigate to `/dashboard/admin/teachers` → click **New coordinator** → fill in names, email, phone, specialisation, and hourly rate → save. The system creates a `usuarios` record with `rol_id` pointing to the Coordinador role and a linked `profesores` profile row.
+  </Step>
+  <Step title="Set up a new class schedule">
+    Go to `/dashboard/admin/locations` and confirm the target sede is active. Then go to `/dashboard/admin/schedule` → **New schedule** → select sede, court, coordinator, training level, day of week, start and end time, and max capacity → save.
+  </Step>
+  <Step title="Validate a student payment">
+    Open `/dashboard/admin/payment-validation`. Review pending payment reports showing student name, amount, and uploaded voucher. Click **Approve** to call `POST /pagos/validar` — this marks the `cuentas_por_cobrar` row as `PAGADO` and the income appears in the dashboard charts.
+  </Step>
+  <Step title="Export monthly intelligence report">
+    From `/dashboard/admin`, click **Exportar Base** in the Master Report panel. A styled `.xlsx` file is downloaded with sheets for student directory, active enrollments, payment history, and pending debts.
+  </Step>
+  <Step title="Bulk reschedule a session block">
+    Go to `/dashboard/admin/reprogramaciones` → select the affected horario, origin date range, and destination date/time → submit. The system calls `POST /clases/reprogramar-masivo` and updates all `registros_asistencia` rows in the range to state `REPROGRAMADO`. Coordinators will see the updated time on their agenda card.
+  </Step>
+</Steps>
+
+## DashboardLayout
+
+The administrator uses `DashboardLayout` (`src/layouts/DashboardLayout.jsx`), which provides:
+
+- A full left sidebar with grouped navigation links for every admin section.
+- A top bar showing the current user and quick-access controls.
+- A main content area with `<Outlet />` rendering the active page.
+
+<Tip>
+  The sidebar remains collapsed on mobile viewports. Admins managing the platform on a tablet or phone should expect a hamburger-menu toggle instead of the permanent rail.
+</Tip>

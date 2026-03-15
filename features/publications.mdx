@@ -1,0 +1,111 @@
+---
+title: "Publications & news"
+description: "How admins create club announcements and how students receive news and notifications in Academia Gema."
+---
+
+The publications system is Academia Gema's internal communication channel. Admins post announcements, event notices, and news to a shared wall. Students see these posts in their news feed and receive notifications when new content is published.
+
+## What a publication contains
+
+Each publication (`publicaciones`) has the following fields:
+
+| Field | Description |
+|---|---|
+| `titulo` | Headline of the announcement |
+| `contenido` | Full text body of the post |
+| `imagen_url` | Optional featured image (uploaded to Cloudinary) |
+| `autor_id` | Admin user who created the publication |
+| `creado_en` | Timestamp when it was published |
+
+Publications are plain content entries — there is no draft or scheduled-publish state. Once submitted, a publication is immediately visible to all students.
+
+## Admin workflow
+
+<Steps>
+  <Step title="Open the publications panel">
+    Navigate to **Admin Dashboard → Muro de Publicaciones**. The panel shows all active publications as a card grid. Each card displays the featured image (if any), title, truncated content, publication date, and the name of the admin who posted it.
+  </Step>
+  <Step title="Create a new publication">
+    Click **Crear Noticia**. Fill in the title and content fields. Optionally upload a featured image — the form accepts any image file and shows a preview before submission.
+
+    ```js
+    // AdminPublications.jsx — form submission
+    const data = new FormData();
+    data.append('titulo', titulo);
+    data.append('contenido', contenido);
+    data.append('autor_id', parseInt(userId));
+    if (imagenFile) data.append('imagen', imagenFile);
+
+    await apiFetch.post(API_ROUTES.PUBLICACIONES.BASE, data);
+    ```
+
+    The image is sent as `multipart/form-data` and stored in Cloudinary. The returned `imagen_url` is saved on the publication record.
+  </Step>
+  <Step title="Publish">
+    Click **Publicar en el Muro**. The publication is created immediately and appears at the top of the list. There is no confirmation step — submissions are final.
+  </Step>
+  <Step title="Delete a publication">
+    Click the trash icon on any publication card. A browser `confirm()` dialog appears. On confirmation, the post is permanently deleted via `DELETE /publicaciones/:id`.
+  </Step>
+</Steps>
+
+<Warning>
+There is no edit action for publications. To correct a published post, delete it and create a new one.
+</Warning>
+
+## Student news feed
+
+Students see all active publications in a news feed (the `StudentNews` page). The feed is fetched from `GET /publicaciones` and renders posts in reverse-chronological order. Each card shows:
+
+- Featured image (if present)
+- Publication title
+- Content body
+- Publication date
+- Author name
+
+<Tip>
+The student news feed uses the same `GET /publicaciones` endpoint as the admin panel. There is no separate student-facing publications endpoint.
+</Tip>
+
+## Notifications
+
+Academia Gema has a notifications system that complements the publications wall. Notifications appear in the student's notification tray and can be marked as read individually.
+
+<Columns cols={2}>
+  <Card title="Fetch notifications" icon="bell">
+    `GET /notificaciones` returns all notifications for the authenticated user, including unread count and message content.
+  </Card>
+  <Card title="Mark as read" icon="check">
+    `PATCH /notificaciones/:id/leer` marks a single notification as read. This updates the unread badge in the navigation header.
+  </Card>
+</Columns>
+
+Notifications are generated server-side — for example, when a new publication is posted or when a payment is validated. Students do not create notifications manually.
+
+## API reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/publicaciones` | List all publications |
+| `POST` | `/publicaciones` | Create a new publication (multipart/form-data) |
+| `PUT` | `/publicaciones/:id` | Update a publication |
+| `DELETE` | `/publicaciones/:id` | Delete a publication |
+| `GET` | `/notificaciones` | List notifications for the current user |
+| `PATCH` | `/notificaciones/:id/leer` | Mark a notification as read |
+
+## Common questions
+
+<AccordionGroup>
+  <Accordion title="Is there a character limit on publication content?">
+    The `contenido` field is stored as `TEXT` in the database, so there is no hard character limit imposed by the schema. Keep posts concise for readability — the student feed truncates content at 4 lines in the card view.
+  </Accordion>
+  <Accordion title="What image formats are accepted?">
+    The upload field accepts any file with an `image/*` MIME type. The frontend validates this client-side before sending. Common formats like JPEG, PNG, and WebP all work.
+  </Accordion>
+  <Accordion title="Can students post to the wall?">
+    No. Only admin users can create publications. The **Crear Noticia** button and the creation form are only rendered in the admin dashboard context.
+  </Accordion>
+  <Accordion title="Are notifications sent for every new publication?">
+    Notifications are generated server-side. Whether every publication triggers a notification depends on backend business logic. Students should check both the news feed and the notification tray for complete coverage.
+  </Accordion>
+</AccordionGroup>

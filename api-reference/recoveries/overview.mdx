@@ -1,0 +1,180 @@
+---
+title: "Recovery sessions"
+description: "Allow students to recover missed class sessions by scheduling make-up classes at available slots."
+---
+
+Recovery sessions (`recuperaciones`) give students the ability to make up a class they missed due to absence or an injury-related leave. When a student is marked `AUSENTE` or their absence is approved as a medical leave, the system generates a recovery ticket. The student (or a coordinator on their behalf) can then schedule that ticket into any available class slot.
+
+<Note>
+Students with outstanding debts (`PENDIENTE`, `PARCIAL`, or `POR_VALIDAR`) cannot use recovery tickets until their balance is cleared. The student Payments page displays a warning when this restriction is active.
+</Note>
+
+---
+
+## How recovery sessions work
+
+<Steps>
+  <Step title="Absence is recorded">
+    A coordinator marks a student as `AUSENTE` during a session (via `POST /asistencias/masiva` or `PATCH /asistencias/{id}`).
+  </Step>
+  <Step title="Recovery ticket is generated">
+    The system automatically creates a recovery ticket (`recuperaciones`) for the absence. Tickets can also be generated for injury-related leaves approved through the `/lesiones` workflow.
+  </Step>
+  <Step title="Student schedules the recovery">
+    The student browses pending tickets via `GET /recuperaciones/pendientes`, chooses a destination schedule, and calls `POST /recuperaciones/agendar-recuperacion` to book the make-up class.
+  </Step>
+  <Step title="Recovery is completed or cancelled">
+    If the student attends the make-up session, the ticket is marked as completed. If plans change, the student can cancel via `POST /recuperaciones/cancelar-recuperacion/{id}` and reschedule.
+  </Step>
+</Steps>
+
+---
+
+## Endpoints
+
+### List recovery sessions
+
+**`GET /recuperaciones`** — Returns all recovery records accessible to the authenticated user. Admins and coordinators see all records; students see only their own.
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/recuperaciones \
+  --header 'Authorization: Bearer {token}'
+```
+
+</CodeGroup>
+
+<ResponseField name="data" type="object[]">
+  Array of recovery session records.
+  <Expandable title="Recovery object">
+    <ResponseField name="id" type="number">Recovery ticket ID.</ResponseField>
+    <ResponseField name="alumno_id" type="number">ID of the student this ticket belongs to.</ResponseField>
+    <ResponseField name="horario_origen_id" type="number">ID of the schedule where the absence occurred.</ResponseField>
+    <ResponseField name="horario_destino_id" type="number">ID of the schedule chosen for the make-up class. `null` if not yet scheduled.</ResponseField>
+    <ResponseField name="fecha_ausencia" type="string">Date of the original absence in `YYYY-MM-DD` format.</ResponseField>
+    <ResponseField name="fecha_programada" type="string">Date of the scheduled make-up session. `null` if not yet scheduled.</ResponseField>
+    <ResponseField name="estado" type="string">Ticket state: `PENDIENTE`, `AGENDADO`, `COMPLETADO`, or `CANCELADO`.</ResponseField>
+    <ResponseField name="tipo" type="string">`NORMAL` for standard absences, `LESION` for injury-related leaves.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### List pending recovery tickets
+
+**`GET /recuperaciones/pendientes`** — Returns only recovery tickets with state `PENDIENTE` for the authenticated user. Used to populate the "schedule a recovery" interface.
+
+<CodeGroup>
+
+```javascript JavaScript (from recuperacion.service.js)
+const pendientes = await recuperacionService.obtenerPendientes();
+// Returns both NORMAL and LESION type tickets that are unscheduled
+```
+
+</CodeGroup>
+
+### Recovery history
+
+**`GET /recuperaciones/historial`** — Returns the full history of recovery tickets (all states: pending, scheduled, completed, and cancelled) for the authenticated user.
+
+<CodeGroup>
+
+```javascript JavaScript (from recuperacion.service.js)
+const historial = await recuperacionService.obtenerHistorial();
+```
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/recuperaciones/historial \
+  --header 'Authorization: Bearer {token}'
+```
+
+</CodeGroup>
+
+### Student recovery sessions
+
+**`GET /recuperaciones/alumno/{id}`** — Returns all recovery tickets for a specific student. Requires coordinator or admin privileges.
+
+<ParamField path="id" type="number" required>
+  The `usuario_id` of the student.
+</ParamField>
+
+### Schedule a recovery
+
+**`POST /recuperaciones/agendar-recuperacion`** — Books a pending recovery ticket into a specific available schedule on a chosen date.
+
+<ParamField body="alumnoId" type="number" required>
+  The `usuario_id` of the student redeeming the ticket.
+</ParamField>
+
+<ParamField body="recuperacionId" type="number" required>
+  The ID of the pending recovery ticket to redeem.
+</ParamField>
+
+<ParamField body="horarioDestinoId" type="number" required>
+  The ID of the target schedule where the make-up class will take place.
+</ParamField>
+
+<ParamField body="fechaProgramada" type="string" required>
+  The specific date for the make-up session in `YYYY-MM-DD` format. Must fall on the same day of the week as `horarioDestinoId`.
+</ParamField>
+
+<CodeGroup>
+
+```javascript JavaScript (from recuperacion.service.js)
+await recuperacionService.agendar({
+  alumnoId: 12,
+  recuperacionId: 7,
+  horarioDestinoId: 3,
+  fechaProgramada: '2026-03-20'
+});
+```
+
+```bash cURL
+curl --request POST \
+  --url https://api.academiagema.com/recuperaciones/agendar-recuperacion \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "alumnoId": 12,
+    "recuperacionId": 7,
+    "horarioDestinoId": 3,
+    "fechaProgramada": "2026-03-20"
+  }'
+```
+
+</CodeGroup>
+
+### Cancel a recovery
+
+**`POST /recuperaciones/cancelar-recuperacion/{id}`** — Cancels a previously scheduled recovery ticket, returning it to `PENDIENTE` state so the student can reschedule.
+
+<ParamField path="id" type="number" required>
+  The ID of the recovery ticket to cancel.
+</ParamField>
+
+<CodeGroup>
+
+```javascript JavaScript (from recuperacion.service.js)
+await recuperacionService.cancelar(recuperacionId);
+```
+
+```bash cURL
+curl --request POST \
+  --url https://api.academiagema.com/recuperaciones/cancelar-recuperacion/7 \
+  --header 'Authorization: Bearer {token}'
+```
+
+</CodeGroup>
+
+---
+
+## Injury-related recoveries
+
+When a coordinator evaluates an injury request via `POST /lesiones/{id}/evaluar` and sets `estado` to approved, the system can generate recovery tickets of type `LESION`. These are returned alongside `NORMAL` tickets in `GET /recuperaciones/pendientes`.
+
+See the Lesiones (Injuries) API for details on submitting and evaluating injury requests.
+
+<Warning>
+Capacity limits on the destination schedule still apply when scheduling a recovery. If the target session is full, the API returns `422 Unprocessable Entity`. The student must choose a different available slot.
+</Warning>

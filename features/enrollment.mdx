@@ -1,0 +1,120 @@
+---
+title: "Student enrollment"
+description: "How students enroll in classes and how admins manage enrollment status in Academia Gema."
+---
+
+Enrollment connects a student to a specific schedule for a training season. Each enrollment record tracks which class a student is registered for, the current status of that registration, and the date it was created.
+
+## Enrollment states
+
+```sql
+CREATE TABLE inscripciones (
+    id SERIAL PRIMARY KEY,
+    alumno_id INT NOT NULL REFERENCES alumnos(usuario_id),
+    horario_id INT NOT NULL REFERENCES horarios_clases(id),
+    fecha_inscripcion DATE DEFAULT CURRENT_DATE,
+    estado VARCHAR(20) DEFAULT 'ACTIVO'
+        CHECK (estado IN ('ACTIVO', 'SUSPENDIDO', 'RETIRADO')),
+    CONSTRAINT unica_inscripcion_alumno UNIQUE (alumno_id, horario_id)
+);
+```
+
+| State | Meaning |
+|---|---|
+| `ACTIVO` | Student is actively attending the class |
+| `SUSPENDIDO` | Enrollment is temporarily suspended (e.g., due to non-payment) |
+| `RETIRADO` | Student has withdrawn from the class |
+
+<Note>
+The `UNIQUE (alumno_id, horario_id)` constraint means a student can only be enrolled in the same schedule once. Attempting a duplicate enrollment returns an error from the API.
+</Note>
+
+## Capacity limits
+
+Every schedule has a `capacidad_max` field (default 20). The enrollment API enforces this limit server-side. If a class is full when a student tries to enroll, the request is rejected. Students see available capacity on each class card in the enrollment page.
+
+## Student enrollment flow
+
+<Steps>
+  <Step title="Check for outstanding debts">
+    When the enrollment page loads, it simultaneously fetches available schedules and the student's accounts receivable (`/cuentas-por-cobrar`). If there is a `PENDIENTE` or `PARCIAL` debt, an `OutstandingDebtAlert` banner is shown and the **Confirm Enrollment** button is hidden. The student must clear all debts before enrolling in new classes.
+  </Step>
+  <Step title="Browse and select classes">
+    The page displays active schedules filtered by day of week (Monday–Sunday pill buttons) and optionally by sede. Students tap or click schedule cards to select them. A weekly timeline widget (`WeeklyTimeline`) shows the current selection visually.
+  </Step>
+  <Step title="Conflict detection">
+    Before adding a class to the selection, the frontend checks whether it overlaps in time with any already-selected class on the same day. If a conflict is detected, a toast notification fires and the selection is blocked.
+  </Step>
+  <Step title="Submit enrollment">
+    With at least one class selected and no outstanding debt, the student clicks **Confirmar Matrícula**. The app sends a single request with all selected schedule IDs.
+
+    ```js
+    // enrollment.jsx
+    await apiFetch.post(API_ROUTES.INSCRIPCIONES.BASE, {
+      alumno_id: userId,
+      horario_ids: selectedIds
+    });
+    ```
+  </Step>
+  <Step title="Confirmation">
+    On success, the selection is cleared, a success toast appears, and the page data refreshes. Any enrollment errors (e.g., class full, duplicate) are surfaced inline with a styled error toast.
+  </Step>
+</Steps>
+
+## MyRegistrations page
+
+Students can view all their enrollments — past and present — at `/dashboard/student/my-registrations`. The page groups enrollments by status and shows a summary counter for active classes and total history.
+
+<Tabs>
+  <Tab title="Status groups">
+    | Internal state | Display label | Description |
+    |---|---|---|
+    | `ACTIVO` | En Curso | Currently active enrollment |
+    | `POR_VALIDAR` | Validando | Payment reported, awaiting admin validation |
+    | `PENDIENTE_PAGO` | Por Pagar | Enrolled but payment not yet reported |
+    | `PEN-RECU` | Liquidación | Pending recovery session |
+    | `FINALIZADO` | Historial | Completed or withdrawn enrollment |
+  </Tab>
+  <Tab title="Actions">
+    Students with an `ACTIVO` enrollment can **Finalizar Ciclo** — a voluntary withdrawal that frees the class slot but keeps paid classes accessible until end of month.
+
+    Students with a `PENDIENTE_PAGO` enrollment can **Cancelar Paquete** — this removes all schedules in the package and cancels the associated debt entirely.
+
+    Both actions trigger a confirmation dialog before proceeding.
+  </Tab>
+</Tabs>
+
+The page fetches enrollments from:
+
+```js
+GET /inscripciones/alumno/:id
+```
+
+## Admin enrollment view
+
+Admins access enrollment data indirectly through the student profile panel (**Admin Dashboard → Alumnos**). Clicking **Ver Perfil** on any student opens their academic record (expediente), which includes contact details, emergency contact, and medical information.
+
+To see which students are enrolled in a specific schedule, admins use the coordinator dashboard or the schedule management panel, which surfaces `inscripciones` counts per schedule.
+
+<Columns cols={2}>
+  <Card title="View student profile" icon="user">
+    Admin panel shows full student details: document type/number, phone, emergency contact, blood type, medical conditions, and insurance.
+  </Card>
+  <Card title="Enrollment count per schedule" icon="list-ol">
+    Each schedule card on the coordinator dashboard shows the total number of enrolled students (`totalStudents`) for that session.
+  </Card>
+</Columns>
+
+## API reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/inscripciones` | List all enrollments (admin) |
+| `POST` | `/inscripciones` | Enroll a student in one or more schedules |
+| `GET` | `/inscripciones/alumno/:id` | Get a specific student's enrollments |
+| `PATCH` | `/inscripciones/:id/finalizar` | Student voluntarily ends an active enrollment |
+| `PATCH` | `/inscripciones/:id/cancelar-reserva` | Cancel a pending-payment enrollment package |
+
+<Warning>
+Canceling a `PENDIENTE_PAGO` package (`/inscripciones/:id/cancelar-reserva`) removes **all schedules** in that package and voids the linked debt. This is irreversible.
+</Warning>

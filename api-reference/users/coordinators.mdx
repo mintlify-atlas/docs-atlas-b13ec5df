@@ -1,0 +1,203 @@
+---
+title: "Coordinators"
+description: "Endpoints and profile fields for Coordinador and Profesor users in Academia Gema."
+---
+
+Academia Gema distinguishes between two staff-level roles: **Coordinadores** (coordinators) who manage club operations, and **Profesores** (professors/coaches) who run the training sessions. Both roles extend the base `usuarios` record — professors have a dedicated `profesores` table extension.
+
+## Coordinator user
+
+Coordinators are stored in `usuarios` with `rol = 'Coordinador'`. They do not have a separate profile extension table. After login they are redirected to `/dashboard/teacher`.
+
+## Professor profile fields
+
+The `profesores` table extends the base `usuarios` record for users assigned the `Profesor` role:
+
+<ResponseField name="usuario_id" type="integer">
+  Foreign key to `usuarios.id`. Primary key of the `profesores` table.
+</ResponseField>
+
+<ResponseField name="especializacion" type="string">
+  The coach's area of specialization within volleyball (e.g. `Defensa`, `Saque`, `Formación juvenil`). Up to 100 characters.
+</ResponseField>
+
+<ResponseField name="tarifa_hora" type="number">
+  The coach's hourly billing rate, stored as `DECIMAL(10, 2)`. Used for payroll calculations.
+</ResponseField>
+
+---
+
+## List all coordinators
+
+```
+GET /usuarios/role/coordinador
+```
+
+Returns all users assigned the `Coordinador` role. Requires an authenticated session with `Administrador` privileges.
+
+```js
+const response = await apiFetch.get(API_ROUTES.USUARIOS.COORDINADORES);
+// API_ROUTES.USUARIOS.COORDINADORES === "/usuarios/role/coordinador"
+const { data } = await response.json();
+```
+
+**Response** — array of coordinator user objects:
+
+```json
+{
+  "data": [
+    {
+      "id": 7,
+      "nombres": "María Elena",
+      "apellidos": "Torres Ruiz",
+      "email": "maria.torres@academiagema.com",
+      "telefono": "987654321",
+      "activo": true,
+      "rol": "Coordinador"
+    }
+  ]
+}
+```
+
+---
+
+## Get coordinator profiles
+
+```
+GET /coordinadores
+```
+
+Returns coordinator-specific profile data. This endpoint may return additional coordinator fields beyond the base `usuarios` record.
+
+```js
+const response = await apiFetch.get(API_ROUTES.COORDINADORES.BASE);
+// API_ROUTES.COORDINADORES.BASE === "/coordinadores"
+```
+
+---
+
+## Get coordinator by ID
+
+```
+GET /coordinadores/{id}
+```
+
+Returns the profile of a single coordinator.
+
+<ParamField path="id" type="integer" required>
+  The numeric ID of the coordinator (`usuarios.id`).
+</ParamField>
+
+```js
+const response = await apiFetch.get(API_ROUTES.COORDINADORES.BY_ID(id));
+// API_ROUTES.COORDINADORES.BY_ID(7) === "/coordinadores/7"
+```
+
+**Response:**
+
+<ResponseField name="id" type="integer">
+  The coordinator's user ID.
+</ResponseField>
+
+<ResponseField name="nombres" type="string">
+  First name(s).
+</ResponseField>
+
+<ResponseField name="apellidos" type="string">
+  Last name(s).
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Institutional email address.
+</ResponseField>
+
+<ResponseField name="telefono" type="string">
+  Contact phone number.
+</ResponseField>
+
+<ResponseField name="activo" type="boolean">
+  Whether the account is currently active.
+</ResponseField>
+
+---
+
+## List all professors
+
+```
+GET /usuarios/role/profesor
+```
+
+Returns all users assigned the `Profesor` role. Professors are linked to training schedules via `horarios_clases.profesor_id` and appear in schedule management views.
+
+```js
+const response = await apiFetch.get(API_ROUTES.USUARIOS.PROFESORES);
+// API_ROUTES.USUARIOS.PROFESORES === "/usuarios/role/profesor"
+```
+
+**Response** — array of professor user objects including profile extension:
+
+```json
+{
+  "data": [
+    {
+      "id": 15,
+      "nombres": "Carlos",
+      "apellidos": "Mendoza",
+      "email": "carlos.mendoza@academiagema.com",
+      "activo": true,
+      "rol": "Profesor",
+      "profesorPerfil": {
+        "especializacion": "Formación juvenil",
+        "tarifa_hora": 45.00
+      }
+    }
+  ]
+}
+```
+
+---
+
+## Database schema
+
+```sql
+-- Base coordinator record (uses usuarios table, no separate extension)
+-- roles.nombre = 'Coordinador'
+
+-- Professor profile extension
+CREATE TABLE profesores (
+    usuario_id      INT PRIMARY KEY REFERENCES usuarios(id),
+    especializacion VARCHAR(100),
+    tarifa_hora     DECIMAL(10, 2)
+);
+```
+
+Professors are linked to training sessions through the `horarios_clases` table:
+
+```sql
+CREATE TABLE horarios_clases (
+    id         SERIAL PRIMARY KEY,
+    profesor_id INT NOT NULL REFERENCES profesores(usuario_id),
+    -- ... other schedule fields
+);
+```
+
+## API route constants
+
+```js
+USUARIOS: {
+  COORDINADORES: "/usuarios/role/coordinador",
+  PROFESORES:    "/usuarios/role/profesor",
+},
+COORDINADORES: {
+  BASE:  "/coordinadores",
+  BY_ID: (id) => `/coordinadores/${id}`,
+},
+```
+
+## Error responses
+
+| Status | Meaning |
+|---|---|
+| `401 Unauthorized` | No valid session cookie; the interceptor will attempt a token refresh |
+| `403 Forbidden` | Authenticated user does not have the required role to access this endpoint |
+| `404 Not Found` | No coordinator found with the specified ID |

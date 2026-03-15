@@ -1,0 +1,242 @@
+---
+title: "Architecture overview"
+description: "How the Academia Gema frontend is structured: React SPA, role-based layouts, API interceptor, and authentication flow."
+---
+
+## System overview
+
+Academia Gema follows a classic three-tier architecture:
+
+```
+┌─────────────────────────┐
+│   Browser (React SPA)   │  ← Vite + React 19 + TailwindCSS
+│   /home/daytona/…/Front │
+└────────────┬────────────┘
+             │  HTTPS / REST (fetch via apiFetch)
+             ▼
+┌─────────────────────────┐
+│     REST API backend    │  ← Node.js / Express (separate service)
+└────────────┬────────────┘
+             │  SQL
+             ▼
+┌─────────────────────────┐
+│   PostgreSQL database   │  ← schema in BD/clubGema.sql
+└─────────────────────────┘
+```
+
+The frontend is a pure single-page application. Every navigation event is handled client-side by React Router v7. The backend is a separate service; the only coupling is the `VITE_API_URL` environment variable and the cookie that the API sets on login.
+
+---
+
+## Frontend folder structure
+
+```text
+Front/src/
+├── App.jsx               # Root router — all route definitions live here
+├── main.jsx              # React DOM entry point
+├── index.css             # Global styles + Tailwind base imports
+│
+├── components/           # Shared UI components (Navbar, Sidebar, ProtectedRoute, …)
+├── constants/
+│   └── apiRoutes.js      # Centralised API endpoint constants
+├── context/
+│   └── AuthContext.jsx   # Global auth state via React Context
+├── data/                 # Static or seeded front-end data
+├── interceptors/
+│   └── api.js            # apiFetch wrapper — all HTTP calls go through here
+├── layouts/
+│   ├── DashboardLayout.jsx   # Administrador: full sidebar + header
+│   ├── StudentLayout.jsx     # Alumno: desktop sidebar + mobile bottom nav
+│   └── TeacherLayout.jsx     # Coordinador/Profesor: minimal sidebar
+├── pages/
+│   ├── admin/            # Admin-only management pages
+│   ├── student/          # Student-only pages
+│   ├── teacher/          # Coordinator pages
+│   └── *.jsx             # Public pages (Home, Login, Blog, Pricing, …)
+├── services/             # Data-fetching helpers grouped by domain
+│   ├── auth.service.js
+│   ├── alumno.service.js
+│   ├── asistencia.service.js
+│   ├── catalogo.service.js
+│   ├── feriado.service.js
+│   ├── horario.service.js
+│   ├── lesion.service.js
+│   ├── recuperacion.service.js
+│   └── sede.service.js
+└── utils/                # Utility/helper functions
+```
+
+---
+
+## Layouts and role routing
+
+Three layouts wrap the role-specific page trees. Each layout is guarded by a `ProtectedRoute` that enforces allowed roles before rendering.
+
+| Layout | Role(s) | Route prefix | Description |
+|---|---|---|---|
+| `DashboardLayout` | `Administrador`, `admin`, `administrador` | `/dashboard/admin` | Full collapsible sidebar, top header with user info, desktop and mobile variants via `MobileNavbarAdmin`. |
+| `StudentLayout` | `Alumno`, `student`, `alumno` | `/dashboard/student` | Fixed 256 px sidebar on desktop; bottom navigation bar on mobile via `MobileNavbar`. |
+| `TeacherLayout` | `Coordinador`, `teacher`, `profesor` | `/dashboard/teacher` | Minimal sidebar (`TeacherSidebar`), top header; mobile bottom nav via `MobileNavbarTeacher`. |
+
+### ProtectedRoute component
+
+`src/components/ProtectedRoute.jsx` is a React Router layout route that gates access by role:
+
+```jsx src/components/ProtectedRoute.jsx
+const ProtectedRoute = ({ allowedRoles }) => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500" />
+      </div>
+    );
+  }
+
+  const isAuthenticated = !!user;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  const currentRole = user?.rol || user?.user?.rol || Cookies.get('user_role');
+
+  if (allowedRoles && (!currentRole || !allowedRoles.includes(currentRole))) {
+    return <Navigate to="/forbidden" replace />;
+  }
+
+  return <Outlet />;
+};
+```
+
+**Behaviour:**
+1. While `AuthContext` is still resolving, a spinner is shown.
+2. If no authenticated user is found, the visitor is redirected to `/login`.
+3. If the user's role is not in `allowedRoles`, they are redirected to `/forbidden`.
+4. Otherwise, `<Outlet />` renders the matching child route.
+
+Role values accepted by each guard (from `App.jsx`):
+
+```jsx
+// Student guard
+<ProtectedRoute allowedRoles={['Alumno', 'student', 'alumno']} />
+
+// Coordinator guard
+<ProtectedRoute allowedRoles={['Coordinador', 'teacher', 'profesor']} />
+
+// Admin guard
+<ProtectedRoute allowedRoles={['Administrador', 'admin', 'administrador']} />
+```
+
+---
+
+## API interceptor — `apiFetch`
+
+All HTTP calls go through `src/interceptors/api.js`. This module exports `apiFetch`, a `fetch` wrapper that:
+
+- Reads `VITE_API_URL` from Vite's environment at module load time.
+- Attaches `credentials: 'include'` to every request so the browser sends the HTTP-only JWT cookie automatically.
+- Detects `401 Unauthorized` responses and attempts a transparent token refresh via `POST /auth/refresh` before retrying the original request.
+- Queues concurrent requests while a refresh is in-flight, replaying them all once the new token is issued.
+- If the refresh also fails, removes the role/name/id cookies, shows a toast notification, and redirects to `/login`.
+
+```js src/interceptors/api.js
+export const apiFetch = async (endpoint, options = {}) => {
+  const isFormData = options.body instanceof FormData;
+  const defaultOptions = {
+    ...options,
+    credentials: 'include',
+    headers: {
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...options.headers,
+    },
+  };
+
+  let response = await fetch(`${API_URL}${endpoint}`, defaultOptions);
+
+  if (response.status === 401 && !endpoint.includes('/auth/')) {
+    // ... transparent refresh logic
+  }
+
+  return response;
+};
+
+// Convenience methods
+apiFetch.get    = (endpoint, options = {}) => apiFetch(endpoint, { ...options, method: 'GET' });
+apiFetch.post   = (endpoint, body, options = {}) => apiFetch(endpoint, { ...options, method: 'POST', body: JSON.stringify(body) });
+apiFetch.put    = (endpoint, body, options = {}) => apiFetch(endpoint, { ...options, method: 'PUT',  body: JSON.stringify(body) });
+apiFetch.patch  = (endpoint, body, options = {}) => apiFetch(endpoint, { ...options, method: 'PATCH', body: JSON.stringify(body) });
+apiFetch.delete = (endpoint, options = {}) => apiFetch(endpoint, { ...options, method: 'DELETE' });
+```
+
+Service files in `src/services/` import `apiFetch` and call it with constants from `src/constants/apiRoutes.js`.
+
+---
+
+## API route namespaces
+
+All backend endpoint paths are centralised in `src/constants/apiRoutes.js` under the `API_ROUTES` object. The namespaces and their base paths are:
+
+| Namespace | Base path | Description |
+|---|---|---|
+| `AUTH` | `/auth/…` | Login, logout, refresh, password reset, profile update |
+| `ROLES` | `/roles` | Role catalogue |
+| `HORARIOS` | `/horarios` | Class schedules |
+| `USUARIOS` | `/usuarios/…` | User management, role-filtered lists, stats, Excel report |
+| `INSCRIPCIONES` | `/inscripciones` | Student enrollment |
+| `PAGOS` | `/pagos/…` | Payment reporting, validation, student history |
+| `SEDES` | `/sedes/…` | Locations (branches), occupancy dashboard |
+| `RECUPERACIONES` | `/recuperaciones/…` | Recovery sessions |
+| `CANCHAS` | `/canchas` | Courts |
+| `NIVELES` | `/niveles` | Class levels |
+| `TIPOS_BENEFICIO` | `/tipos-beneficio` | Benefit type definitions |
+| `DESCUENTOS` | `/descuentos` | Apply discount codes |
+| `ASISTENCIAS` | `/asistencias/…` | Attendance records and statistics |
+| `CUENTAS_POR_COBRAR` | `/cuentas-por-cobrar` | Accounts receivable |
+| `CLASES` | `/clases/…` | Class instances, bulk rescheduling, revert |
+| `CATALOGO` | `/catalogo/…` | Service catalogue |
+| `PARAMETROS` | `/parametros` | System parameters |
+| `CLOUDINARY` | `/cloudinary` | Image upload |
+| `LESIONES` | `/lesiones/…` | Injury records |
+| `TIPOS_DOCUMENTO` | `/tipos-documento` | ID document types |
+| `BENEFICIOS_PENDIENTES` | `/beneficioPendiente` | Pending benefit approvals |
+| `ALUMNOS` | `/alumnos`, `/alumno/…` | Student profile, cut-day summary |
+| `PUBLICACIONES` | `/publicaciones/…` | Club news and publications |
+| `NOTIFICACIONES` | `/notificaciones/…` | In-app notifications |
+| `METODOS_PAGO` | `/metodos-pago` | Payment methods |
+| `COORDINADORES` | `/coordinadores/…` | Coordinator records |
+| `FERIADOS` | `/feriados/…` | Public holiday calendar |
+
+---
+
+## Authentication flow
+
+```
+1. User submits credentials on /login
+        │
+        ▼
+2. POST /auth/login  →  API sets HTTP-only JWT cookie
+                        + non-HTTP-only cookies:
+                          user_role, user_name, user_id
+        │
+        ▼
+3. AuthContext reads cookies on mount,
+   populates user state
+        │
+        ▼
+4. React Router renders ProtectedRoute
+   — checks user.rol / user.user.rol
+     or falls back to Cookies.get('user_role')
+        │
+        ▼
+5. Role match → renders DashboardLayout / StudentLayout / TeacherLayout
+   Role mismatch → <Navigate to="/forbidden" />
+   Not authenticated → <Navigate to="/login" />
+        │
+        ▼
+6. All subsequent API calls go through apiFetch
+   — 401 response → silent POST /auth/refresh → retry
+   — Refresh fails → clear cookies → redirect /login
+```
+
+<Note>
+  The JWT itself is stored in an HTTP-only cookie and is never accessible from JavaScript. The `user_role`, `user_name`, and `user_id` cookies are readable by the frontend and are the source of truth for routing decisions.
+</Note>

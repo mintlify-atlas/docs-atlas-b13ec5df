@@ -1,0 +1,174 @@
+---
+title: "Payments & billing"
+description: "How the two-step payment flow, accounts receivable, discounts, and payment validation work in Academia Gema."
+---
+
+Academia Gema uses a **report-then-validate** payment model. Students report a payment they have made (attaching proof), and an admin then validates or rejects it. This keeps the club's finances auditable and prevents unverified payments from being credited automatically.
+
+## Accounts receivable (cuentas_por_cobrar)
+
+Before a student can report a payment, a billing record (`cuentas_por_cobrar`) must exist for them. These records are created by admins when a new enrollment period begins or when a fee becomes due.
+
+```sql
+CREATE TABLE cuentas_por_cobrar (
+    id SERIAL PRIMARY KEY,
+    alumno_id INT NOT NULL REFERENCES alumnos(usuario_id),
+    concepto VARCHAR(150) NOT NULL,
+    monto DECIMAL(10,2) NOT NULL,
+    fecha_vencimiento DATE NOT NULL,
+    estado VARCHAR(20) DEFAULT 'PENDIENTE'
+        CHECK (estado IN ('PENDIENTE', 'PARCIAL', 'PAGADO', 'VENCIDO', 'CANCELADO'))
+);
+```
+
+| State | Meaning |
+|---|---|
+| `PENDIENTE` | No payment has been received yet |
+| `PARCIAL` | A partial payment has been received and validated |
+| `PAGADO` | The full amount has been received and validated |
+| `VENCIDO` | The due date has passed without full payment |
+| `CANCELADO` | The charge has been voided (e.g., enrollment cancelled) |
+
+<Warning>
+Students with a `PENDIENTE` or `PARCIAL` debt cannot enroll in new classes. The enrollment page detects outstanding debts on load and hides the enrollment confirmation button until all debts are cleared.
+</Warning>
+
+## Payment methods (metodos_pago)
+
+Admins configure available payment methods (e.g., bank transfer, Yape, cash). Students select from these configured methods when reporting a payment. The method name is stored on the `pagos` record and displayed in both student and admin views.
+
+Payment methods are managed via:
+
+```js
+GET /metodos-pago
+```
+
+## Two-step payment flow
+
+<Tabs>
+  <Tab title="Student side">
+    <Steps>
+      <Step title="View pending debts">
+        The **Centro de Pagos** page (`/dashboard/student/payments`) loads two datasets in parallel:
+        - Active debts from `GET /cuentas-por-cobrar/historial/:id`
+        - Payment report history from `GET /pagos/alumno/:id`
+
+        Active debts are those in `PENDIENTE`, `PARCIAL`, or `POR_VALIDAR` state.
+      </Step>
+      <Step title="Open the report modal">
+        The student clicks **Reportar Pago** on a debt card. A modal (`ReportPaymentModal`) opens asking for:
+        - Payment amount
+        - Payment method
+        - Transaction reference code (`codigo_operacion`)
+        - Proof of payment image (uploaded to Cloudinary)
+      </Step>
+      <Step title="Submit the report">
+        The report is submitted to `POST /pagos/reportar`. On success, the payment appears in the student's history with a `PENDIENTE` validation state while waiting for admin review.
+      </Step>
+    </Steps>
+
+    If there are active debts, a full-width critical notice banner is shown reminding the student that enrollment and recovery class access are suspended until all debts are paid.
+  </Tab>
+  <Tab title="Admin side">
+    <Steps>
+      <Step title="Open payment management">
+        Admins go to **Admin Dashboard → Gestión de Ingresos**. The panel shows payment cards filtered by validation status (`PENDIENTE`, `APROBADO`, `RECHAZADO`), month, and year.
+      </Step>
+      <Step title="Review a payment">
+        Clicking a payment card opens the validation view (`AdminPaymentValidation`). The admin sees:
+        - Student details (name, document, email, phone)
+        - Amount reported
+        - Payment method and transaction code
+        - Proof of payment image
+        - Whether the payment is blocked by attendance recovery (`bloqueado_por_asistencia`)
+      </Step>
+      <Step title="Validate or reject">
+        The admin clicks **Aprobar** or **Rechazar**. This calls `POST /pagos/validar`. On approval, the linked `cuentas_por_cobrar` record updates its state to `PAGADO` or `PARCIAL` depending on the amounts.
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Payment validation states
+
+Each payment report (`pagos`) has an `estado_validacion` field separate from the account state:
+
+| Validation state | Meaning |
+|---|---|
+| `PENDIENTE` | Submitted by student, awaiting admin review |
+| `APROBADO` | Validated by admin and credited |
+| `RECHAZADO` | Rejected by admin (e.g., incorrect amount or fake proof) |
+
+<Note>
+Payments flagged as `bloqueado_por_asistencia` (blocked by attendance recovery) show a distinct orange warning banner in the admin panel. These require extra attention before approval.
+</Note>
+
+## Discounts and benefits
+
+Academia Gema supports a discounts system to reduce the amount owed by a student.
+
+<Columns cols={2}>
+  <Card title="Benefit types (tipos_beneficio)" icon="tag">
+    Admins define categories of benefits (e.g., sibling discount, staff discount). Managed via `GET /tipos-beneficio`.
+  </Card>
+  <Card title="Apply a discount" icon="percent">
+    Discounts are applied to a specific account via `POST /descuentos/aplicar`, reducing `monto_final` on the `cuentas_por_cobrar` record.
+  </Card>
+  <Card title="Pending benefits" icon="clock">
+    `beneficioPendiente` tracks benefit requests that haven't been actioned yet. Accessible via `GET /beneficioPendiente`.
+  </Card>
+  <Card title="Student benefit view" icon="user-check">
+    Students see applied discounts reflected in the remaining balance shown on their debt cards.
+  </Card>
+</Columns>
+
+## Admin statistics and export
+
+The admin payment panel includes a statistics component (`AdminPaymentStats`) that renders a monthly revenue bar chart for the selected year. Stats are computed client-side from the full payments dataset:
+
+```js
+// AdminPaymentManager.jsx — monthly revenue calculation
+payments.forEach(p => {
+  if (p.estado_validacion === 'APROBADO') {
+    const mesIdx = new Date(p.fecha_pago).getMonth();
+    recaudacionMes[mesIdx] = (recaudacionMes[mesIdx] || 0)
+      + parseFloat(p.monto_pagado);
+  }
+});
+```
+
+Admins can export the full payment dataset to Excel for external reporting. The export button is available in the admin dashboard header.
+
+## Student payment history
+
+The student payment history section on the **Centro de Pagos** page shows a scrollable list of all previously reported payments (`PaymentHistoryItem`). Each entry shows:
+
+- Payment date
+- Amount paid
+- Payment method
+- Validation state (PENDIENTE / APROBADO / RECHAZADO)
+
+History is fetched from:
+
+```js
+GET /pagos/alumno/:id
+```
+
+## API reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/pagos/gestion-admin` | Admin payment management list |
+| `GET` | `/pagos/alumno/:id` | Student payment history |
+| `POST` | `/pagos/reportar` | Student reports a new payment |
+| `POST` | `/pagos/validar` | Admin validates or rejects a payment |
+| `GET` | `/cuentas-por-cobrar` | All accounts receivable (admin) |
+| `GET` | `/cuentas-por-cobrar/historial/:id` | Student's account receivable history |
+| `GET` | `/metodos-pago` | List of available payment methods |
+| `GET` | `/tipos-beneficio` | List of benefit/discount types |
+| `POST` | `/descuentos/aplicar` | Apply a discount to an account |
+| `GET` | `/beneficioPendiente` | List of pending benefit requests |
+
+<Tip>
+When a student reports a partial payment on a `PARCIAL` account, the system sums all approved payments against the `monto_final`. The account moves to `PAGADO` only when the sum equals or exceeds the total amount due.
+</Tip>

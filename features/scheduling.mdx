@@ -1,0 +1,135 @@
+---
+title: "Class scheduling"
+description: "How admins create and manage weekly class schedules across courts, locations, and levels at Academia Gema."
+---
+
+The scheduling module is the backbone of Academia Gema's operations. Admins build the club's weekly timetable by assigning a court, coordinator, training level, day, and time to each class. Students then browse those published schedules to choose classes to enroll in.
+
+## Schedule fields
+
+Each schedule entry (`horarios_clases`) captures the following information:
+
+| Field | Description |
+|---|---|
+| `sede` | Location (branch) where the class takes place |
+| `cancha` | Specific court within that sede |
+| `coordinador` | Coordinator (teacher) leading the session |
+| `nivel` | Training level — e.g., Principiante, Intermedio |
+| `dia_semana` | Day of the week: `1` = Monday through `7` = Sunday |
+| `hora_inicio` | Start time (HH:MM) |
+| `hora_fin` | End time (HH:MM) |
+| `capacidad_max` | Maximum number of enrolled students (default: 20) |
+| `activo` | Whether the schedule is published and visible to students |
+
+```sql
+CREATE TABLE horarios_clases (
+    id SERIAL PRIMARY KEY,
+    sede_id INT NOT NULL REFERENCES sedes(id),
+    cancha_id INT REFERENCES canchas(id),
+    profesor_id INT NOT NULL REFERENCES profesores(usuario_id),
+    nivel_id INT NOT NULL REFERENCES niveles_entrenamiento(id),
+    dia_semana INT NOT NULL CHECK (dia_semana BETWEEN 1 AND 7),
+    hora_inicio TIME NOT NULL,
+    hora_fin TIME NOT NULL,
+    capacidad_max INT DEFAULT 20,
+    activo BOOLEAN DEFAULT TRUE,
+    CONSTRAINT unica_cancha_hora UNIQUE (cancha_id, dia_semana, hora_inicio)
+);
+```
+
+<Warning>
+The `UNIQUE (cancha_id, dia_semana, hora_inicio)` constraint prevents double-booking. Two classes cannot share the same court on the same day and start time. The API returns an error if you attempt to create a conflicting schedule.
+</Warning>
+
+## Admin workflow
+
+<Steps>
+  <Step title="Open the schedule panel">
+    Navigate to **Admin Dashboard → Horarios**. The panel displays all existing schedules as cards, each showing the time range, level, coordinator, and court/sede. Use the filter bar to narrow results by day of the week, sede, or coordinator.
+  </Step>
+  <Step title="Create a new schedule">
+    Click **Programar Clase**. Fill in all required fields — sede, cancha, coordinator, level, day, start time, end time, and capacity — then save. The new class card appears immediately in the list.
+  </Step>
+  <Step title="Edit an existing schedule">
+    Hover over any schedule card and click the edit icon (pencil). The same creation form opens pre-populated with the current values. Save to apply changes.
+  </Step>
+  <Step title="Delete a schedule">
+    Click the trash icon on a schedule card. A confirmation dialog appears before the schedule is permanently removed. Deleting a schedule frees the court slot for that day and time.
+  </Step>
+</Steps>
+
+## Filtering and search
+
+The schedule list panel supports four simultaneous filters:
+
+- **Text search** — matches coordinator name or court name
+- **Day of week** — filters to Monday–Sunday
+- **Sede** — filters to a specific branch location
+- **Coordinator** — filters to a specific coordinator
+
+Results are paginated at 6 cards per page.
+
+## Student schedule browsing
+
+Students see active schedules on their enrollment page (`/dashboard/student/enrollment`). The page fetches all schedules where `activo = true` and lets students filter by:
+
+- **Day of the week** — pill buttons for Monday through Sunday
+- **Sede** — dropdown populated from the schedules in the response
+
+The frontend also detects time conflicts: if a student selects two schedules on the same day that overlap in time, a toast alert fires and the second selection is rejected.
+
+```js
+// enrollment.jsx — conflict detection
+const choque = agendaSeleccionada.find(h => {
+  return h.dia_semana === claseNueva.dia_semana && (
+    (claseNueva.hora_inicio >= h.hora_inicio && claseNueva.hora_inicio < h.hora_fin) ||
+    (claseNueva.hora_fin > h.hora_inicio && claseNueva.hora_fin <= h.hora_fin) ||
+    (h.hora_inicio >= claseNueva.hora_inicio && h.hora_inicio < claseNueva.hora_fin)
+  );
+});
+```
+
+## Rescheduling (reprogramaciones)
+
+Admins can perform **mass rescheduling** when an entire class session needs to move — for example, due to a holiday or court maintenance. The rescheduling system works at the class instance level, not at the base schedule level.
+
+<Columns cols={2}>
+  <Card title="Bulk reschedule" icon="calendar">
+    `POST /clases/reprogramar-masivo` creates a mass reschedule record that overrides the time for all enrolled students on a given date.
+  </Card>
+  <Card title="Revert reschedule" icon="rotate-left">
+    `POST /clases/revertir-masivo` cancels an active bulk reschedule and restores the original time.
+  </Card>
+  <Card title="Active reschedules" icon="list">
+    `GET /clases/reprogramaciones-masivas-activas` lists all currently active bulk reschedules so admins can review or revert them.
+  </Card>
+  <Card title="Coordinator view" icon="chalkboard-teacher">
+    When a session has been rescheduled, the coordinator's dashboard shows the overridden time range and a **REPROGRAMADA (ADMIN)** badge instead of the original time.
+  </Card>
+</Columns>
+
+Rescheduled attendance records carry a reference to the `reprogramaciones_clases` object, which stores the destination start and end times:
+
+```js
+// DashboardTeacher.jsx — reading rescheduled time
+if (reg.reprogramaciones_clases) {
+  timeRange = `${reg.reprogramaciones_clases.hora_inicio_destino}`
+    + ` - ${reg.reprogramaciones_clases.hora_fin_destino}`;
+}
+```
+
+## API reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/horarios` | Returns all schedules (active and inactive) |
+| `POST` | `/horarios` | Creates a new schedule |
+| `PUT` | `/horarios/:id` | Updates an existing schedule |
+| `DELETE` | `/horarios/:id` | Permanently deletes a schedule |
+| `GET` | `/clases/reprogramar-masivo` | Bulk reschedule sessions |
+| `POST` | `/clases/revertir-masivo` | Revert an active bulk reschedule |
+| `GET` | `/clases/reprogramaciones-masivas-activas` | List active bulk reschedules |
+
+<Tip>
+The `/horarios` endpoint returns nested objects for `cancha` (including `sede`), `coordinador`, and `nivel`. You don't need separate requests to display the full schedule card.
+</Tip>

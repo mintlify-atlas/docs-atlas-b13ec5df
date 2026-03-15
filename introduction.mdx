@@ -1,0 +1,57 @@
+---
+title: "Introduction"
+description: "Academia Gema is a full-stack volleyball club management platform that streamlines scheduling, enrollment, attendance, payments, and more."
+---
+
+## What is Academia Gema?
+
+Academia Gema is a SaaS platform built for volleyball clubs. It replaces spreadsheets and ad-hoc tools with a single, role-aware web application that handles the full lifecycle of a student's membership — from enrollment and class scheduling through attendance tracking, payment validation, injury management, and recovery sessions.
+
+The frontend is a React single-page application served over the web. It communicates with a REST API backend and a PostgreSQL database. Three distinct user roles each get a purpose-built dashboard with their own layout, navigation, and permissions.
+
+---
+
+## User roles
+
+<CardGroup cols={3}>
+  <Card title="Administrador" icon="shield-halved" href="/roles/admin">
+    Full access to all management features. Creates and manages students, teachers, schedules, locations, levels, payments, publications, benefits, guest passes, and system settings. Views analytics and exports Excel reports.
+  </Card>
+  <Card title="Coordinador / Profesor" icon="chalkboard-user" href="/roles/coordinator">
+    Records daily attendance for their assigned classes, manages their personal profile, and processes cut-day summaries. Accesses a minimal sidebar focused on operational tasks.
+  </Card>
+  <Card title="Alumno" icon="user-graduate" href="/roles/student">
+    Enrolls in classes, views their schedule and registrations, reports and tracks injuries, books recovery sessions, uploads payment vouchers, reads club news, and manages their personal profile.
+  </Card>
+</CardGroup>
+
+---
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Scheduling & Enrollment" icon="calendar-days" href="/features/scheduling">
+    Administrators create class schedules tied to locations, levels, and teachers. Students self-enroll through their dashboard. The admin panel handles bulk rescheduling and mass revert operations.
+  </Card>
+  <Card title="Attendance tracking" icon="clipboard-check" href="/features/attendance">
+    Coordinators mark attendance per class session. Students can view their full attendance history and per-class statistics.
+  </Card>
+  <Card title="Payment management" icon="credit-card" href="/features/payments">
+    Students upload payment vouchers and track their payment history. Administrators validate or reject submitted payments and manage accounts receivable.
+  </Card>
+  <Card title="Injury & recovery management" icon="kit-medical" href="/api-reference/recoveries/overview">
+    Students report injuries with details. Administrators oversee all active injuries across the club. Students book recovery sessions that are tracked separately from regular classes.
+  </Card>
+  <Card title="Publications & news" icon="newspaper" href="/features/publications">
+    Administrators publish club news and announcements. Students receive and read publications through their news feed.
+  </Card>
+  <Card title="Benefits & discounts" icon="tag" href="/api-reference/payments/overview">
+    Administrators create benefit types and assign discounts to eligible students. Pending benefit approvals are tracked in a dedicated queue.
+  </Card>
+  <Card title="Guest passes" icon="id-card" href="/roles/admin">
+    Administrators issue and manage guest passes that allow non-members to attend sessions temporarily.
+  </Card>
+  <Card title="Excel reports" icon="file-excel" href="/features/payments">
+    Generate detailed Excel exports for student rosters, payment history, and operational summaries using the `xlsx` and `xlsx-js-style` libraries.
+  </Card>
+</CardGroup>

@@ -1,0 +1,239 @@
+---
+title: "Students"
+description: "Endpoints and profile fields for student (Alumno) users in Academia Gema."
+---
+
+Students are the core participants of the club. Their base record lives in `usuarios` and their extended profile in the `alumnos` table. All student-facing endpoints that require authentication use the `apiFetch` interceptor, which automatically attaches the session cookie and handles token refresh.
+
+## Student profile fields
+
+The `alumnos` table stores additional data beyond the base `usuarios` record:
+
+<ResponseField name="usuario_id" type="integer">
+  Foreign key to `usuarios.id`. Serves as the primary key for the `alumnos` table.
+</ResponseField>
+
+<ResponseField name="contacto_emergencia_nombre" type="string">
+  Full name of the emergency contact provided at registration.
+</ResponseField>
+
+<ResponseField name="contacto_emergencia_telefono" type="string">
+  Phone number of the emergency contact. Up to 20 characters.
+</ResponseField>
+
+<ResponseField name="condiciones_medicas" type="string">
+  Free-text description of any known medical conditions. May be `null` if none were declared.
+</ResponseField>
+
+<ResponseField name="fecha_nacimiento" type="string">
+  Date of birth in `YYYY-MM-DD` format, stored as a PostgreSQL `DATE` column.
+</ResponseField>
+
+---
+
+## List all students
+
+```
+GET /usuarios/role/alumno
+```
+
+Returns all users with the `Alumno` role. Requires an authenticated session with `Administrador` or `Coordinador` privileges.
+
+```js
+const response = await apiFetch.get(API_ROUTES.USUARIOS.ALUMNOS);
+// API_ROUTES.USUARIOS.ALUMNOS === "/usuarios/role/alumno"
+const { data } = await response.json();
+```
+
+**Response** — array of user objects:
+
+```json
+{
+  "data": [
+    {
+      "id": 42,
+      "nombres": "Juan Alberto",
+      "apellidos": "Pérez García",
+      "email": "juan@example.com",
+      "telefono": "999888777",
+      "activo": true,
+      "rol": "Alumno"
+    }
+  ]
+}
+```
+
+---
+
+## Get student by ID
+
+```
+GET /usuarios/{id}
+```
+
+Returns the full user record for any user ID, including the student's role-specific profile.
+
+<ParamField path="id" type="integer" required>
+  The numeric ID of the student (`usuarios.id`).
+</ParamField>
+
+**Implementation from `alumno.service.js`:**
+
+```js
+getById: async (id) => {
+  const response = await apiFetch.get(API_ROUTES.USUARIOS.ALUMNO_BY_ID(id));
+  // API_ROUTES.USUARIOS.ALUMNO_BY_ID(42) === "/usuarios/42"
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.message || "Error al obtener alumno");
+  }
+  return result.data || result;
+},
+```
+
+---
+
+## Get own profile (student)
+
+```
+GET /alumno/mi-perfil
+```
+
+Returns the authenticated student's own profile, including the extended `alumnos` fields. Only accessible to users with the `Alumno` role.
+
+```js
+const response = await apiFetch.get(API_ROUTES.ALUMNOS.MI_PERFIL);
+// API_ROUTES.ALUMNOS.MI_PERFIL === "/alumno/mi-perfil"
+```
+
+**Response** — the student's complete profile:
+
+<ResponseField name="id" type="integer">
+  The user's numeric ID.
+</ResponseField>
+
+<ResponseField name="nombres" type="string">
+  First name(s).
+</ResponseField>
+
+<ResponseField name="apellidos" type="string">
+  Last name(s).
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Email address.
+</ResponseField>
+
+<ResponseField name="alumnoPerfil" type="object">
+  The `alumnos` table extension fields.
+
+  <Expandable title="alumnoPerfil">
+    <ResponseField name="contacto_emergencia_nombre" type="string">
+      Emergency contact's full name.
+    </ResponseField>
+    <ResponseField name="contacto_emergencia_telefono" type="string">
+      Emergency contact's phone number.
+    </ResponseField>
+    <ResponseField name="condiciones_medicas" type="string">
+      Declared medical conditions, or `null`.
+    </ResponseField>
+    <ResponseField name="fecha_nacimiento" type="string">
+      Date of birth (`YYYY-MM-DD`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Get cut-day billing summary
+
+```
+GET /alumno/gestion/resumen-cortes
+```
+
+Returns a summary of the authenticated student's billing cut days — the dates on which monthly fees are calculated. Used by the student dashboard to display upcoming and past payment obligations.
+
+```js
+const response = await apiFetch.get(API_ROUTES.ALUMNOS.DIA_CORTE);
+// API_ROUTES.ALUMNOS.DIA_CORTE === "/alumno/gestion/resumen-cortes"
+```
+
+<Note>
+  This endpoint is student-scoped. The server determines the student from the active session cookie — no ID parameter is needed.
+</Note>
+
+---
+
+## User statistics
+
+```
+GET /usuarios/count/usuarios-stats
+```
+
+Returns aggregate counts of users broken down by role and active status. Used by the administrator dashboard.
+
+```js
+const response = await apiFetch.get(API_ROUTES.USUARIOS.STATS);
+// API_ROUTES.USUARIOS.STATS === "/usuarios/count/usuarios-stats"
+```
+
+**Response example:**
+
+```json
+{
+  "data": {
+    "total": 148,
+    "alumnos": 130,
+    "coordinadores": 12,
+    "administradores": 6,
+    "activos": 140,
+    "inactivos": 8
+  }
+}
+```
+
+---
+
+## Detailed user report (Excel)
+
+```
+GET /usuarios/reporte/detallado
+```
+
+Generates and returns a detailed user report as an Excel file (`.xlsx`). Includes all user records with their role-specific profile fields. Intended for administrative export.
+
+```js
+const response = await apiFetch.get(API_ROUTES.USUARIOS.REPORTE);
+// API_ROUTES.USUARIOS.REPORTE === "/usuarios/reporte/detallado"
+```
+
+<Warning>
+  This endpoint returns binary file data (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`). Do not attempt to parse the response as JSON.
+</Warning>
+
+---
+
+## Update student profile
+
+```
+PUT /usuarios/{id}
+```
+
+Updates a student's profile data. Used by coordinators and administrators to update student information after registration.
+
+<ParamField path="id" type="integer" required>
+  The numeric ID of the student to update.
+</ParamField>
+
+**Implementation from `alumno.service.js`:**
+
+```js
+update: async (id, payload) => {
+  const response = await apiFetch.put(API_ROUTES.USUARIOS.ALUMNO_BY_ID(id), payload);
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.message || "Error al actualizar alumno");
+  }
+  return result.data || result;
+},
+```

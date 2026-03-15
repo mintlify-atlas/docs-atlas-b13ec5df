@@ -1,0 +1,139 @@
+---
+title: "Student role"
+description: "How the Alumno role works in Academia Gema, including class enrollment, payment reporting, injury tracking, and profile management."
+---
+
+The **Alumno** role provides students with a self-service portal to manage their entire relationship with the club: enrolling in classes, tracking attendance, reporting payments, logging injuries, and viewing club news.
+
+<Note>
+  Accepted role strings: `Alumno`, `student`, `alumno`. All three grant identical access.
+</Note>
+
+## Student routes
+
+| Route | Component | Purpose |
+|---|---|---|
+| `/dashboard/student` | `DashboardEstudiante` | Main dashboard — stats, weekly timeline, payments |
+| `/dashboard/student/myRegistrations` | `MyRegistrations` | View all enrolled classes |
+| `/dashboard/student/payments` | `Payments` | Payment history and report new payments |
+| `/dashboard/student/profile` | `Profile` | Full personal profile with emergency contact and medical data |
+| `/dashboard/student/enrollment` | `Enrollment` | Browse available classes and enroll |
+| `/dashboard/student/injuries` | `StudentInjuries` | Log new injury reports |
+| `/dashboard/student/recoveries` | `StudentRecoveries` | View scheduled recovery sessions |
+| `/dashboard/student/news` | `StudentNews` | Club news and announcements feed |
+
+## Main dashboard — `/dashboard/student`
+
+The student dashboard (`DashboardEstudiante.jsx`) loads four data streams in parallel on mount:
+
+- `GET /asistencias/alumno/:id` — attendance history
+- `GET /recuperaciones/historial` — recovery session history
+- `GET /cuentas-por-cobrar` — outstanding debts
+- `GET /pagos` — payment history
+
+The page is composed of five sections:
+
+<CardGroup cols={2}>
+  <Card title="Benefits carousel" icon="gift">
+    Auto-rotating banner highlighting three key Gema benefits: class recovery policy, referral discount (S/ 10 per referral), and the injury freeze feature. Rotates every 6 seconds.
+  </Card>
+  <Card title="Stats panel" icon="chart-bar">
+    `StudentStats` component — personal KPIs such as sessions attended, pending balance, and recovery credits available.
+  </Card>
+  <Card title="Weekly timeline" icon="calendar-week">
+    `WeeklyTimeline` component — visual schedule of the current week's sessions. Respects rescheduled times by reading `reprogramaciones_clases.hora_inicio_destino` over the base schedule time.
+  </Card>
+  <Card title="Attendance schedule" icon="clipboard-list">
+    `StudentSchedule` component — full attendance history filterable by month and year. Shows individual session cards with state badges.
+  </Card>
+</CardGroup>
+
+### Notifications
+
+The dashboard includes a notification bell (`NotificationBell`) in the header that polls `GET /notificaciones` every 5 minutes. The unread count badge is driven by `GET /notificaciones/conteo-no-leidas`. Clicking a notification marks it as read via `PATCH /notificaciones/:id/leer` using optimistic UI — the badge decrements instantly before the API responds.
+
+## Onboarding flow
+
+<Steps>
+  <Step title="Register an account">
+    The student registers at `/register` via `POST /usuarios/register`. The system creates a `usuarios` row with a coordinator-assigned `rol_id` and a linked `alumnos` profile row.
+  </Step>
+  <Step title="Complete your profile">
+    Navigate to `/dashboard/student/profile` and edit personal data, emergency contact, and medical conditions via `PUT /auth/profile`. This data is critical for safety during training.
+  </Step>
+  <Step title="Enroll in a class">
+    Go to `/dashboard/student/enrollment` to browse available class schedules. Select a schedule and confirm enrollment — this creates an `inscripciones` row and generates the corresponding `registros_asistencia` entries for the season.
+  </Step>
+  <Step title="Report your payment">
+    After making a payment via Yape, Plin, bank transfer, or cash, go to `/dashboard/student/payments` and submit a payment report with the transaction reference. The admin validates it from `/dashboard/admin/payment-validation`.
+  </Step>
+  <Step title="Track attendance and recoveries">
+    The main dashboard shows your full attendance history. If you miss a session, check `/dashboard/student/recoveries` for available recovery slots, following the club's recovery policy.
+  </Step>
+</Steps>
+
+## Profile — `/dashboard/student/profile`
+
+The student profile (`Profile.jsx`) fetches data from `GET /alumno/mi-perfil` which returns the joined `usuarios` + `alumnos` + `direcciones` record.
+
+<CardGroup cols={2}>
+  <Card title="Contact data" icon="address-card">
+    - Email address
+    - Mobile phone / WhatsApp
+    - Date of birth (`fecha_nacimiento`)
+    - Full address with district (`direcciones.calle_principal`, `direcciones.distrito`)
+  </Card>
+  <Card title="Safety and health" icon="heart-pulse">
+    - **Emergency contact** — name (`contacto_emergencia_nombre`) and phone (`contacto_emergencia_telefono`) stored in the `alumnos` table
+    - **Medical conditions** — free-text field (`condiciones_medicas`) from the `alumnos` table
+    - Blood type (`grupo_sanguineo`) and medical insurance provider (`seguro_medico`)
+  </Card>
+</CardGroup>
+
+```sql
+-- alumnos table — extended profile for students
+CREATE TABLE alumnos (
+    usuario_id INT PRIMARY KEY REFERENCES usuarios(id),
+    contacto_emergencia_nombre VARCHAR(100),
+    contacto_emergencia_telefono VARCHAR(20),
+    condiciones_medicas TEXT,
+    fecha_nacimiento DATE
+);
+```
+
+Two action buttons are available on the profile:
+- **Editar Perfil** — opens `EditProfileModal` pre-filled with current data.
+- **Contraseña** — opens `ChangePasswordModal`.
+
+## Payments — `/dashboard/student/payments`
+
+Students cannot pay directly through the platform. The workflow is:
+
+1. Student makes payment externally (Yape, Plin, transfer, cash).
+2. Student reports the payment at `/dashboard/student/payments` via `POST /pagos/reportar`, providing amount, method, and transaction reference.
+3. Admin reviews and validates or rejects the payment from `/dashboard/admin/payment-validation`.
+4. Once validated (`APROBADO`), the corresponding `cuentas_por_cobrar` row is updated to `PAGADO`.
+
+## Injuries — `/dashboard/student/injuries`
+
+Students can self-report injuries via `POST /lesiones`. When an injury is active, the admin can freeze the student's sessions so they do not lose their class allocation while recovering.
+
+## Recoveries — `/dashboard/student/recoveries`
+
+Recovery sessions are shown via `GET /recuperaciones/alumno/:id`. The club's recovery policy (configurable via system parameters) allows students who attend 2–3 sessions/week to recover up to 2 missed classes, and students attending 4+ sessions/week to recover up to 4.
+
+## News — `/dashboard/student/news`
+
+The news feed reads from `GET /publicaciones` and displays announcements and content created by administrators from `/dashboard/admin/publications`.
+
+## StudentLayout
+
+Students are wrapped in `StudentLayout` (`src/layouts/StudentLayout.jsx`), which provides:
+
+- A **bottom navigation bar** on mobile for quick access to the main sections.
+- A **left sidebar** on desktop (md+ breakpoints) with all navigation items.
+- The layout is optimised for phone use since most students access the club from a mobile device.
+
+<Tip>
+  The student dashboard background uses `bg-[#f1f5f9]` (light slate) rather than white, making it visually distinct from the admin and coordinator dashboards.
+</Tip>

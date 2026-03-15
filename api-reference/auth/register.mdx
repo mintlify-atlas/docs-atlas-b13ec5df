@@ -1,0 +1,191 @@
+---
+title: "Register"
+description: "Create a new student account. Self-registration is restricted to the Alumno role."
+---
+
+Creates a new user account. Public registration through this endpoint is restricted to the `Alumno` (student) role — coordinators and administrators are provisioned directly by club staff.
+
+On success the server returns a generated username the student should note down to log in.
+
+## Endpoint
+
+```
+POST /usuarios/register
+```
+
+## Request body
+
+The payload is split into two sections: base user fields and role-specific profile fields nested under `datosRolEspecifico`.
+
+### Base user fields
+
+<ParamField body="nombres" type="string" required>
+  Student's first name(s). Example: `Juan Alberto`.
+</ParamField>
+
+<ParamField body="apellidos" type="string" required>
+  Student's last name(s). Example: `Pérez García`.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  A valid email address. Must be unique across all users (`usuarios.email UNIQUE`).
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Plain-text password provided by the student. The server stores only the bcrypt hash.
+</ParamField>
+
+<ParamField body="tipo_documento_id" type="string" required>
+  ID of the document type selected from `/tipos-documento`. The registration form pre-selects the first available option. Example: `DNI`.
+</ParamField>
+
+<ParamField body="numero_documento" type="string" required>
+  The student's national ID or passport number. Example: `70001000`.
+</ParamField>
+
+<ParamField body="fecha_nacimiento" type="string" required>
+  Date of birth in `YYYY-MM-DD` format. Example: `2002-05-14`.
+</ParamField>
+
+<ParamField body="genero" type="string" required>
+  Gender. One of `M` (Masculino), `F` (Femenino), or `O` (Otro).
+</ParamField>
+
+<ParamField body="telefono_personal" type="string" required>
+  Student's personal phone number. Restricted to 9 digits (Peruvian mobile format). Example: `999888777`.
+</ParamField>
+
+<ParamField body="rol_id" type="integer" required>
+  The numeric ID of the `Alumno` role, fetched at page load from `GET /roles/nombre/Alumno`. This binds the new account to the student role.
+</ParamField>
+
+<ParamField body="datosRolEspecifico" type="object" required>
+  Role-specific profile fields stored in the `alumnos` table.
+
+  <Expandable title="datosRolEspecifico">
+    <ParamField body="contacto_emergencia" type="string" required>
+      Phone number of the emergency contact. 9 digits maximum. Example: `944555666`.
+    </ParamField>
+
+    <ParamField body="parentesco" type="string" required>
+      Relationship of the emergency contact to the student. One of `familiar`, `pareja`, `amistad`, or `otro`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Example payload
+
+```json
+{
+  "nombres": "Juan Alberto",
+  "apellidos": "Pérez García",
+  "email": "juan@example.com",
+  "password": "mySecurePass123",
+  "tipo_documento_id": "DNI",
+  "numero_documento": "70001000",
+  "fecha_nacimiento": "2002-05-14",
+  "genero": "M",
+  "telefono_personal": "999888777",
+  "rol_id": 3,
+  "datosRolEspecifico": {
+    "contacto_emergencia": "944555666",
+    "parentesco": "familiar"
+  }
+}
+```
+
+## Response
+
+A `201 Created` response on success:
+
+```json
+{
+  "data": {
+    "username": "juan.perez"
+  }
+}
+```
+
+<ResponseField name="data.username" type="string">
+  The auto-generated username assigned to the new account. The student must use this value (not their email) in the login form. The frontend surfaces this in a toast notification with a 10-second display duration.
+</ResponseField>
+
+<Note>
+  The generated username is displayed only once in the success notification. Students should save it before navigating away.
+</Note>
+
+## Code example
+
+The following is the exact `registerService` implementation from `auth.service.js`, along with how `Register.jsx` constructs the payload:
+
+<CodeGroup>
+```js auth.service.js
+export const registerService = async (userData) => {
+  const response = await fetch(`${API_URL}${API_ROUTES.USUARIOS.BASE}/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(userData),
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.message || "Error al registrar el usuario");
+  }
+
+  return result;
+};
+```
+
+```js Register.jsx (payload construction)
+const { contacto_emergencia, parentesco, ...datosBasicos } = formData;
+
+const payloadFinal = {
+  ...datosBasicos,
+  rol_id: rolIdAlumno,
+  datosRolEspecifico: {
+    contacto_emergencia,
+    parentesco
+  }
+};
+
+const response = await registerService(payloadFinal);
+```
+
+```bash curl
+curl -X POST https://api.academiagema.com/usuarios/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombres": "Juan Alberto",
+    "apellidos": "Pérez García",
+    "email": "juan@example.com",
+    "password": "mySecurePass123",
+    "tipo_documento_id": "DNI",
+    "numero_documento": "70001000",
+    "fecha_nacimiento": "2002-05-14",
+    "genero": "M",
+    "telefono_personal": "999888777",
+    "rol_id": 3,
+    "datosRolEspecifico": {
+      "contacto_emergencia": "944555666",
+      "parentesco": "familiar"
+    }
+  }'
+```
+</CodeGroup>
+
+## Post-registration flow
+
+After a successful registration the frontend displays the generated username in a toast for 10 seconds and then navigates to `/login`. The student must log in with the generated username — not their email.
+
+## Terms and conditions
+
+The registration form requires the user to scroll through and accept the *Compromiso de Participación* (Participation Commitment) before the submit button is enabled. The six terms cover image rights, health liability, personal property, equipment use, scheduling, and payment obligations.
+
+## Error responses
+
+| Status | Meaning |
+|---|---|
+| `400 Bad Request` | Missing required fields or invalid values |
+| `409 Conflict` | Email address is already registered |
+| `500 Internal Server Error` | Unexpected server-side error |

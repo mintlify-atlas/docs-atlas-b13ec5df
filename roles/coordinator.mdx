@@ -1,0 +1,130 @@
+---
+title: "Coordinator role"
+description: "How the Coordinador role works in Academia Gema, including the attendance workflow, cut-day management, and profile configuration."
+---
+
+The **Coordinador** (also referred to as *Profesor* internally) role is focused on a single primary task: **recording attendance** for each training session they are assigned to. The coordinator interface is intentionally minimal — a lightweight `TeacherLayout` with only the pages they need.
+
+<Note>
+  Accepted role strings: `Coordinador`, `teacher`, `profesor`. All three grant identical access.
+</Note>
+
+## Coordinator routes
+
+| Route | Component | Purpose |
+|---|---|---|
+| `/dashboard/teacher` | `DashboardTeacher` | Main attendance agenda |
+| `/dashboard/teacher/profile` | `TeacherProfile` | Personal and professional profile |
+| `/dashboard/teacher/DiaCorte` | `DiaCorte` | Cut-day student overview |
+
+## Main dashboard — `/dashboard/teacher`
+
+The coordinator dashboard (`DashboardTeacher.jsx`) is the **training agenda**. On load it calls `asistenciaService.getAgenda()` which fetches `GET /clases/horarios-con-asistencia` and returns every session this coordinator is responsible for across the entire season.
+
+The page builds a flat list of unique session cards from the nested response structure (horario → inscripciones → registros_asistencia), de-duplicating by date so each calendar day appears only once per horario.
+
+### Session card states
+
+| Visual state | Condition |
+|---|---|
+| **Today — orange border, LIVE badge** | `fechaKey === hoy` |
+| **Past — blue border, dimmed** | `fechaKey < hoy` |
+| **Future — slate, button disabled** | `fechaKey > hoy` |
+| **Completed — green badge** | All students in that date have a non-`PROGRAMADA` / non-`PENDIENTE` state |
+| **Rescheduled — orange badge** | All students have state `REPROGRAMADO` (set by admin bulk reschedule) |
+
+Each card shows:
+- Training level name (e.g. `BASICO-C`)
+- Date and formatted label (e.g. `11 MAR`)
+- Time range — uses rescheduled destination time if a `reprogramaciones_clases` override exists
+- Court name
+- Number of enrolled athletes
+
+### Filters
+
+Two dropdowns allow the coordinator to filter the agenda by month and year. The default view shows all sessions across the entire season and auto-scrolls to today's card.
+
+## Taking attendance
+
+<Steps>
+  <Step title="Open the attendance modal">
+    Click **TOMAR ASISTENCIA** on any past or current session card. Future sessions are disabled. The `AttendanceModal` component opens, listing all enrolled students for that specific date.
+  </Step>
+  <Step title="Mark each student">
+    For each student, select one of the four states:
+    - `PRESENTE` — attended
+    - `AUSENTE` — absent without justification
+    - `TARDE` — arrived late
+    - `JUSTIFICADO` — medically justified absence (student will be blocked from being edited once marked)
+  </Step>
+  <Step title="Submit the register">
+    Confirm the attendance list. The modal calls the attendance API (`POST /asistencias`) which creates or updates `registros_asistencia` rows for each student in that session.
+  </Step>
+  <Step title="Review previous sessions">
+    For past sessions the button changes to **VER ASISTENCIA**, opening the same modal in read-only mode to review the recorded register.
+  </Step>
+</Steps>
+
+<Warning>
+  Students marked as **JUSTIFICADO MÉD.** are locked — their attendance state cannot be changed after a medical justification is applied.
+</Warning>
+
+## Cut-day management — `/dashboard/teacher/DiaCorte`
+
+The **Día de Corte** page (`DiaCorte.jsx`) shows the coordinator a list of all enrolled students alongside their contract start date and the calculated cut date (start date + 30 days).
+
+The cut date is the strict payment deadline. The system applies **no grace days**.
+
+### Cut-day statuses
+
+| Badge | Condition |
+|---|---|
+| `Ciclo al día` (green) | Cut date is in the future |
+| `Vence Hoy` (orange) | Cut date is today |
+| `Ciclo Atrasado` (red, pulsing) | Cut date has passed |
+
+### Searching and filtering
+
+- The search bar accepts partial matches on **student name** or **DNI**. Multiple words are split and each word must independently match the name or document number (AND logic).
+- The status dropdown filters to: **Todos los alumnos**, **Alumnos con Deuda** (overdue), or **Vencen Hoy**.
+
+```jsx
+// Palabra-split search logic from DiaCorte.jsx
+const palabrasBusqueda = searchClean.split(/\s+/);
+const coincideBusqueda = palabrasBusqueda.every(palabra =>
+    nombreCompleto.includes(palabra) || dni.includes(palabra)
+);
+```
+
+Data is fetched from `GET /alumno/gestion/resumen-cortes` which returns student names, DNIs, and their active contract `fecha_inicio`.
+
+## Profile management — `/dashboard/teacher/profile`
+
+The coordinator profile page (`Profile.jsx`) fetches data from `GET /coordinadores/:id` and displays two sections:
+
+<CardGroup cols={2}>
+  <Card title="Personal information" icon="user">
+    - Email address
+    - Personal phone / WhatsApp number
+  </Card>
+  <Card title="Professional data" icon="briefcase">
+    - **Especialización** — the coordinator's volleyball specialisation (e.g. blocking, setting). Stored in the `profesores.especializacion` column.
+    - Hourly rate (`tarifa_hora`) is stored in `profesores.tarifa_hora` and visible to admins but not displayed in the coordinator's own profile view.
+  </Card>
+</CardGroup>
+
+The profile page provides two action buttons:
+- **Editar Datos** — opens `EditTeacherProfileModal` to update personal fields and specialisation via `PUT /auth/profile`.
+- **Contraseña** — opens `ChangePasswordModal` to change the account password via `POST /auth/change-password`.
+
+## TeacherLayout
+
+Coordinators are wrapped in `TeacherLayout` (`src/layouts/TeacherLayout.jsx`), which provides:
+
+- A **minimalist sidebar** with only three navigation items: Dashboard (attendance), Día de Corte, and Profile.
+- No financial or student management sections are accessible.
+- Mobile-friendly collapsible navigation.
+
+<Tip>
+  The coordinator dashboard auto-scrolls to today's session card on page load when the month filter is set to **TODOS**. This makes it quick to find the current class without manually scrolling.
+</Tip>

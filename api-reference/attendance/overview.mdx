@@ -1,0 +1,205 @@
+---
+title: "Attendance"
+description: "Record and query student attendance for class sessions, including bulk marking and per-student statistics."
+---
+
+The Attendance API manages `registros_asistencia` — one record per enrolled student per class date. Coordinators mark attendance at the start of each session using the bulk `POST /asistencias/masiva` endpoint. Individual records can also be updated after the fact.
+
+<Note>
+The database enforces a **unique constraint** `asistencia_unica_diaria (inscripcion_id, fecha)`, meaning each enrollment can only have one attendance record per calendar date.
+</Note>
+
+---
+
+## Attendance states
+
+| State | Description |
+|---|---|
+| `PRESENTE` | Student attended the session. |
+| `AUSENTE` | Student was absent without justification. |
+| `TARDE` | Student arrived late. |
+| `JUSTIFICADO` | Absence was officially justified (e.g., injury, medical). |
+
+---
+
+## Endpoints
+
+### List attendance records
+
+**`GET /asistencias`** — Returns attendance records. Accessible to coordinators and admins.
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/asistencias \
+  --header 'Authorization: Bearer {token}'
+```
+
+</CodeGroup>
+
+<ResponseField name="data" type="object[]">
+  Array of attendance records.
+  <Expandable title="Attendance record">
+    <ResponseField name="id" type="number">Record ID.</ResponseField>
+    <ResponseField name="inscripcion_id" type="number">ID of the enrollment this record belongs to.</ResponseField>
+    <ResponseField name="fecha" type="string">Date of the class session in `YYYY-MM-DD` format.</ResponseField>
+    <ResponseField name="estado" type="string">Attendance state: `PRESENTE`, `AUSENTE`, `TARDE`, or `JUSTIFICADO`.</ResponseField>
+    <ResponseField name="comentario" type="string">Optional coordinator note.</ResponseField>
+    <ResponseField name="registrado_en" type="string">Timestamp when the record was created.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Create an attendance record
+
+**`POST /asistencias`** — Creates a single attendance record for one student.
+
+<ParamField body="inscripcion_id" type="number" required>
+  The ID of the enrollment for this attendance entry.
+</ParamField>
+
+<ParamField body="fecha" type="string" required>
+  The date of the session in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="estado" type="string" required>
+  Initial attendance state. One of: `PRESENTE`, `AUSENTE`, `TARDE`, `JUSTIFICADO`.
+</ParamField>
+
+<ParamField body="comentario" type="string">
+  Optional coordinator note attached to the record.
+</ParamField>
+
+### Bulk attendance marking
+
+**`POST /asistencias/masiva`** — Marks attendance for an entire class group in one request. This is the primary method used by coordinators at the start of a session.
+
+<ParamField body="asistencias" type="object[]" required>
+  Array of attendance objects to update.
+  <Expandable title="Attendance item">
+    <ParamField body="id" type="number" required>The ID of the existing `registros_asistencia` record to update.</ParamField>
+    <ParamField body="estado" type="string" required>New state: `PRESENTE`, `AUSENTE`, `TARDE`, or `JUSTIFICADO`.</ParamField>
+  </Expandable>
+</ParamField>
+
+<CodeGroup>
+
+```javascript JavaScript (from asistencia.service.js)
+// Mark attendance for a full class group
+await asistenciaService.marcarAsistenciaMasiva([
+  { id: 44, estado: 'PRESENTE' },
+  { id: 45, estado: 'AUSENTE' },
+  { id: 46, estado: 'TARDE' }
+]);
+```
+
+```bash cURL
+curl --request POST \
+  --url https://api.academiagema.com/asistencias/masiva \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "asistencias": [
+      { "id": 44, "estado": "PRESENTE" },
+      { "id": 45, "estado": "AUSENTE" }
+    ]
+  }'
+```
+
+</CodeGroup>
+
+### Update a single attendance record
+
+**`PATCH /asistencias/{id}`** — Updates the state and optional comment of a specific attendance record. Use this to correct a record after the bulk session mark.
+
+<ParamField path="id" type="number" required>
+  The ID of the attendance record to update.
+</ParamField>
+
+<ParamField body="estado" type="string" required>
+  Updated state: `PRESENTE`, `AUSENTE`, `TARDE`, or `JUSTIFICADO`.
+</ParamField>
+
+<ParamField body="comentario" type="string">
+  Optional updated note.
+</ParamField>
+
+<CodeGroup>
+
+```javascript JavaScript (from asistencia.service.js)
+await asistenciaService.marcarAsistencia(
+  asistenciaId,
+  'JUSTIFICADO',
+  'Presenta certificado médico'
+);
+```
+
+```bash cURL
+curl --request PATCH \
+  --url https://api.academiagema.com/asistencias/44 \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{"estado": "JUSTIFICADO", "comentario": "Presenta certificado médico"}'
+```
+
+</CodeGroup>
+
+### Student attendance history
+
+**`GET /asistencias/alumno/{id}`** — Returns the full attendance history for a specific student across all their enrolled schedules.
+
+<ParamField path="id" type="number" required>
+  The `usuario_id` of the student.
+</ParamField>
+
+<ResponseField name="data" type="object[]">
+  Chronological list of attendance records for the student.
+</ResponseField>
+
+### Student attendance statistics
+
+**`GET /asistencias/alumno/{id}/estadisticas`** — Returns aggregated attendance metrics for a student. Used in student profile dashboards and coordinator reports.
+
+<ParamField path="id" type="number" required>
+  The `usuario_id` of the student.
+</ParamField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="Statistics object">
+    <ResponseField name="total_clases" type="number">Total number of sessions the student was expected to attend.</ResponseField>
+    <ResponseField name="presentes" type="number">Sessions marked `PRESENTE`.</ResponseField>
+    <ResponseField name="ausentes" type="number">Sessions marked `AUSENTE`.</ResponseField>
+    <ResponseField name="tarde" type="number">Sessions marked `TARDE`.</ResponseField>
+    <ResponseField name="justificados" type="number">Sessions marked `JUSTIFICADO`.</ResponseField>
+    <ResponseField name="porcentaje_asistencia" type="number">Attendance rate as a percentage (0–100).</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Coordinator agenda view
+
+**`GET /asistencias/agenda`** — Returns the full agenda for the currently authenticated coordinator: all schedules they oversee, with today's enrolled students and their pre-loaded attendance state.
+
+**`GET /clases/horarios-con-asistencia`** — Returns all schedules system-wide enriched with attendance records for the current day. Used by the coordinator dashboard to take roll-call.
+
+<CodeGroup>
+
+```javascript JavaScript (from asistencia.service.js)
+// Load coordinator's agenda
+const agenda = await asistenciaService.getAgenda();
+```
+
+</CodeGroup>
+
+<Tip>
+Use `/clases/horarios-con-asistencia` when you need a full system view (e.g., admin reporting). Use `/asistencias/agenda` when the response should be scoped to the currently logged-in coordinator.
+</Tip>
+
+---
+
+## Impact on recovery tickets
+
+When a student is marked `AUSENTE` on a session, the system evaluates whether a recovery ticket should be issued based on their enrollment's active status and payment standing. Students with outstanding debts (`PENDIENTE`, `PARCIAL`, or `POR_VALIDAR`) are blocked from using recovery tickets even if they were generated.
+
+See [Recovery sessions](/api-reference/recoveries/overview) for details.

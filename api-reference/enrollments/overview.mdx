@@ -1,0 +1,185 @@
+---
+title: "Enrollments"
+description: "Manage student enrollments in class schedules, track enrollment status, and enforce business rules for Academia Gema."
+---
+
+Enrollments (`inscripciones`) link a student (`alumno`) to a weekly class schedule (`horario`). Creating an enrollment is the step that admits a student into a class group, triggers monthly billing, and establishes the student's attendance record for every future session.
+
+<Note>
+A student may only have **one active enrollment per schedule**. The database enforces a unique constraint on `(alumno_id, horario_id)`.
+</Note>
+
+---
+
+## Enrollment states
+
+| State | Description |
+|---|---|
+| `ACTIVO` | The student is currently attending this schedule. |
+| `SUSPENDIDO` | The enrollment is temporarily paused, typically due to unpaid fees. |
+| `RETIRADO` | The student has withdrawn from the schedule. |
+
+---
+
+## Endpoints
+
+### List enrollments
+
+**`GET /inscripciones`** — Returns a list of enrollment records. Accessible to admins and coordinators. Students receive only their own enrollments via the profile endpoint.
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.academiagema.com/inscripciones \
+  --header 'Authorization: Bearer {token}'
+```
+
+```javascript JavaScript
+const response = await apiFetch.get('/inscripciones');
+const result = await response.json();
+```
+
+</CodeGroup>
+
+<ResponseField name="data" type="object[]">
+  Array of enrollment objects.
+  <Expandable title="Enrollment object">
+    <ResponseField name="id" type="number">Unique enrollment ID.</ResponseField>
+    <ResponseField name="alumno_id" type="number">ID of the enrolled student.</ResponseField>
+    <ResponseField name="horario_id" type="number">ID of the schedule the student is enrolled in.</ResponseField>
+    <ResponseField name="fecha_inscripcion" type="string">Date the enrollment was created, in `YYYY-MM-DD` format. Auto-set to the current date.</ResponseField>
+    <ResponseField name="estado" type="string">Current enrollment status: `ACTIVO`, `SUSPENDIDO`, or `RETIRADO`.</ResponseField>
+    <ResponseField name="actualizado_en" type="string">Timestamp of the last status change.</ResponseField>
+    <ResponseField name="alumno" type="object">
+      Nested student profile.
+      <Expandable title="alumno">
+        <ResponseField name="usuario_id" type="number">Student's user ID.</ResponseField>
+        <ResponseField name="usuario" type="object">
+          <Expandable title="usuario">
+            <ResponseField name="nombres" type="string">First name(s).</ResponseField>
+            <ResponseField name="apellidos" type="string">Last name(s).</ResponseField>
+            <ResponseField name="email" type="string">Email address.</ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="horario" type="object">
+      Nested schedule summary.
+      <Expandable title="horario">
+        <ResponseField name="dia_semana" type="number">Day of the week (1–7).</ResponseField>
+        <ResponseField name="hora_inicio" type="string">Class start time.</ResponseField>
+        <ResponseField name="hora_fin" type="string">Class end time.</ResponseField>
+        <ResponseField name="nivel" type="object">
+          <Expandable title="nivel">
+            <ResponseField name="nombre" type="string">Training level name.</ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Create an enrollment
+
+**`POST /inscripciones`** — Enrolls a student in a schedule. Requires admin or coordinator privileges.
+
+<ParamField body="alumno_id" type="number" required>
+  The `usuario_id` of the student to enroll.
+</ParamField>
+
+<ParamField body="horario_id" type="number" required>
+  The ID of the schedule the student is enrolling in.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request POST \
+  --url https://api.academiagema.com/inscripciones \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{"alumno_id": 12, "horario_id": 5}'
+```
+
+```javascript JavaScript
+const response = await apiFetch.post('/inscripciones', {
+  alumno_id: 12,
+  horario_id: 5
+});
+const result = await response.json();
+```
+
+</CodeGroup>
+
+**Success response (`201 Created`):**
+
+```json
+{
+  "data": {
+    "id": 88,
+    "alumno_id": 12,
+    "horario_id": 5,
+    "fecha_inscripcion": "2026-03-15",
+    "estado": "ACTIVO",
+    "actualizado_en": "2026-03-15T14:30:00.000Z"
+  }
+}
+```
+
+**Error — duplicate enrollment (`409 Conflict`):**
+
+```json
+{
+  "message": "El alumno ya tiene una inscripción activa en este horario."
+}
+```
+
+### Update enrollment status
+
+**`PUT /inscripciones/{id}`** — Changes the status of an existing enrollment. Used to suspend or withdraw a student without deleting the enrollment history.
+
+<ParamField path="id" type="number" required>
+  The numeric ID of the enrollment to update.
+</ParamField>
+
+<ParamField body="estado" type="string" required>
+  New status. One of: `ACTIVO`, `SUSPENDIDO`, `RETIRADO`.
+</ParamField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request PUT \
+  --url https://api.academiagema.com/inscripciones/88 \
+  --header 'Authorization: Bearer {token}' \
+  --header 'Content-Type: application/json' \
+  --data '{"estado": "SUSPENDIDO"}'
+```
+
+```javascript JavaScript
+const response = await apiFetch.put('/inscripciones/88', {
+  estado: 'SUSPENDIDO'
+});
+```
+
+</CodeGroup>
+
+---
+
+## Business rules
+
+<Steps>
+  <Step title="Check capacity">
+    Before creating an enrollment, verify that the schedule has not reached `capacidad_max`. The API will return `422 Unprocessable Entity` if the class is full.
+  </Step>
+  <Step title="Check existing enrollments">
+    The unique constraint `unica_inscripcion_alumno (alumno_id, horario_id)` prevents double-enrollment. A student may enroll in multiple different schedules, but not the same schedule twice.
+  </Step>
+  <Step title="Check payment status">
+    Students with debts in `PENDIENTE`, `PARCIAL`, or `POR_VALIDAR` state are blocked from new enrollments and from requesting recovery sessions. The front-end shows a warning banner in the Payments panel.
+  </Step>
+  <Step title="Generate billing">
+    On successful enrollment, the system generates the first `cuentas_por_cobrar` record for the student based on the `precio_mensual` of the schedule's training level.
+  </Step>
+</Steps>

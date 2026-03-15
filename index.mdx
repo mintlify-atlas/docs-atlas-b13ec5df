@@ -1,97 +1,76 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Academia Gema"
+description: "Volleyball club management platform for administrators, coordinators, and students."
 ---
 
-## Setting up
+## Welcome to Academia Gema
 
-Get your documentation site up and running in minutes.
+Academia Gema is a full-stack volleyball club management platform. It brings together scheduling, enrollment, attendance tracking, and payments into a single system — with dedicated dashboards for each role in your organization.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={3}>
+  <Card title="Get Started" icon="rocket" href="/introduction">
+    Learn what Academia Gema is and how the platform is structured.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Set up the frontend and connect it to your backend in minutes.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand the tech stack, folder structure, and data flow.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Core features
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Class scheduling" icon="calendar" href="/features/scheduling">
+    Manage weekly class schedules across multiple locations and courts, with coordinator assignments and training levels.
+  </Card>
+  <Card title="Student enrollment" icon="user-plus" href="/features/enrollment">
+    Enroll students into class schedules, manage active/suspended/withdrawn states, and cap class capacity.
+  </Card>
+  <Card title="Attendance tracking" icon="clipboard-check" href="/features/attendance">
+    Record present, absent, late, or excused attendance for each session per student enrollment.
+  </Card>
+  <Card title="Payments & billing" icon="credit-card" href="/features/payments">
+    Track accounts receivable, validate reported payments, apply discounts and benefits, and export reports.
+  </Card>
+  <Card title="Publications & news" icon="newspaper" href="/features/publications">
+    Post club announcements and news for students to read in their dashboard.
+  </Card>
+  <Card title="Recovery sessions" icon="rotate" href="/api-reference/recoveries/overview">
+    Allow students to recover missed classes through alternative sessions.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## User roles
 
-## Need inspiration?
+Academia Gema has three distinct roles, each with its own dashboard and feature set.
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={3}>
+  <Card title="Administrator" icon="shield-halved" href="/roles/admin">
+    Full access to manage students, coordinators, schedules, payments, locations, levels, and system settings.
+  </Card>
+  <Card title="Coordinator" icon="chalkboard-user" href="/roles/coordinator">
+    Takes attendance for assigned classes and manages cut-day (dia de corte) records.
+  </Card>
+  <Card title="Student" icon="person" href="/roles/student">
+    Views schedule, manages enrollment, tracks payments, reports injuries, and reads club news.
+  </Card>
+</CardGroup>
+
+## API reference
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api-reference/auth/login">
+    Login, logout, registration, and password reset endpoints.
+  </Card>
+  <Card title="Schedules & Locations" icon="map-pin" href="/api-reference/schedules/overview">
+    Endpoints for class schedules, sedes (locations), courts, and training levels.
+  </Card>
+  <Card title="Operations" icon="gears" href="/api-reference/enrollments/overview">
+    Enrollments, attendance records, payments, and recovery sessions.
+  </Card>
+  <Card title="Content" icon="file-lines" href="/api-reference/publications/overview">
+    Publications, catalog plans, and notification endpoints.
+  </Card>
+</CardGroup>
